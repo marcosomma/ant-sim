@@ -1,0 +1,11 @@
+.yarn/*
+!.yarn/releases
+!.yarn/plugins
+!.yarn/sdks
+!.yarn/versions
+.pnp.*
+node_modules/
+dist/
+.DS_Store
+test.js
+.aws-credentials.csv
