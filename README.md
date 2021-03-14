@@ -1,4 +1,6 @@
-# BabylonJs Boilerplate
+# Ant-Sim
+
+Anthill Simulator ispaired by the book "**ANT ENCOUNTERS**, Interaction Networks and Colony behavior" by _D.M.Gordon_ and the **Complex Adaptive Systems Theory**
 
 ## DEVELOPMENT
 
