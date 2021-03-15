@@ -33,9 +33,6 @@ export const getTextBox = (id, text, color, fontWeight, fontSize, margins, align
 
 export const getNewScene = (engine) => {
   let scene = new BABYLON.Scene(engine)
-  scene.clearColor = new BABYLON.Color3(1, 1, 1)
-  scene.ambientColor = new BABYLON.Color3(1, 1, 1)
-  scene.enablePhysics(new BABYLON.Vector3(0, 0, 0), new BABYLON.CannonJSPlugin())
   scene.collisionsEnabled = true
   scene.exclusiveDoubleMode = false
 
@@ -55,8 +52,6 @@ export const getNewCamera = (id, scene, canvas, space_size) => {
 
 export const getNewLight = (id, scene) => {
   var light = new BABYLON.HemisphericLight(id, new BABYLON.Vector3(-1, 1, 0), scene)
-  light.diffuse = new BABYLON.Color3.White()
-  light.specular = new BABYLON.Color3.White()
   light.intensity = 1
   return light
 }
@@ -76,11 +71,11 @@ export const getAnimationSphere = () => {
     },
     {
       frame: 5,
-      value: new BABYLON.Vector3(1.2, 1.2, 1.2),
+      value: new BABYLON.Vector3(1.2, 1, 1.2),
     },
     {
       frame: 10,
-      value: new BABYLON.Vector3(0.5, 0.5, 0.5),
+      value: new BABYLON.Vector3(0.8, 1, 0.8),
     },
     {
       frame: 15,

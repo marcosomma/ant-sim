@@ -1,6 +1,6 @@
 import * as BABYLON from 'babylonjs'
 import * as GUI from 'babylonjs-gui'
-import { createSphere, createGround } from '../commons/meshCreator'
+import { createSphere } from '../commons/meshCreator'
 import {
   getNewScene,
   getNewCamera,
@@ -19,38 +19,27 @@ export const registerEventListener = () => {
 export const Create = (engine, rootingCallback) => {
   const space_size = 200
   const scene = getNewScene(engine)
+  scene.enablePhysics(new BABYLON.Vector3(0, -10, 0), new BABYLON.CannonJSPlugin())
   const camera = getNewCamera('mainCamera01', scene, canvas, space_size)
   const light = getNewLight('mainLight01', scene)
-  const test_AdvancedTexture = GUI.AdvancedDynamicTexture.CreateFullscreenUI('ui1', scene)
+  const ground = BABYLON.MeshBuilder.CreateGround('ground', { width: space_size * 10, height: space_size * 10 }, scene)
+  ground.physicsImpostor = new BABYLON.PhysicsImpostor(
+    ground,
+    BABYLON.PhysicsImpostor.BoxImpostor,
+    { mass: 0, friction: 0.5, restitution: 1 },
+    scene
+  )
   const sphere = createSphere(
     { id: 'test-sphere', name: 'sphere - test' },
+    2.5,
     12,
-    6,
     new BABYLON.Color3(Math.random() * 1, Math.random() * 1, Math.random() * 1),
     camera,
     scene
   )
+  scene.beginWeightedAnimation(sphere, 0, 100, 0.25, true)
 
-  createGround(scene, space_size, 'ground')
-  createLabel(test_AdvancedTexture, sphere, 'Welcome to scene 01')
-  light.diffuse = new BABYLON.Color3.Green()
-  light.specular = new BABYLON.Color3.Green()
-
-  //GUI
-  const Panel = createSimplePanel({}, 'red')
-  const Btn = createSimpleBtn('scene02', 'Go To Scene02')
-
-  Panel.addControl(Btn)
-  test_AdvancedTexture.addControl(Panel)
-
-  Btn.onPointerClickObservable.add(() => {
-    rootingCallback('scene02')
-  })
-
-  scene.registerBeforeRender(function () {
-    scene.disablePhysicsEngine()
-    scene.enablePhysics(new BABYLON.Vector3(0, 0, 0), new BABYLON.CannonJSPlugin())
-  })
+  scene.registerBeforeRender(function () {})
 
   return scene
 }
