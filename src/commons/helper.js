@@ -40,8 +40,16 @@ export const getNewScene = (engine) => {
 }
 
 export const getNewCamera = (id, scene, canvas, space_size) => {
-  let camera = new BABYLON.ArcRotateCamera(id, 1, 1, space_size * 10, new BABYLON.Vector3.Zero(), scene, true)
-  camera.attachControl(canvas, true)
+  let camera = new BABYLON.ArcRotateCamera(
+    id,
+    1,
+    1,
+    space_size * 10,
+    new BABYLON.Vector3.Zero(),
+    scene,
+    true
+  )
+  camera.attachControl(canvas, false)
   camera.collisionRadius = new BABYLON.Vector3(1, 1, 1)
   camera.lowerRadiusLimit = 10
   camera.upperRadiusLimit = 200
