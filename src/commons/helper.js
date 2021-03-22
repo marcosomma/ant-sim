@@ -49,10 +49,10 @@ export const getNewCamera = (id, scene, canvas, space_size) => {
     scene,
     true
   )
-  camera.attachControl(canvas, false)
+  camera.attachControl(canvas, true)
   camera.collisionRadius = new BABYLON.Vector3(1, 1, 1)
   camera.lowerRadiusLimit = 10
-  camera.upperRadiusLimit = 200
+  camera.upperRadiusLimit = 400
   camera.wheelPrecision = 1
 
   return camera

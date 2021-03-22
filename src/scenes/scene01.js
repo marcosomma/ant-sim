@@ -12,7 +12,7 @@ export const registerEventListener = () => {
 let NestNeeds = {
   perimetral: {
     actual: 0,
-    need: 3,
+    need: 30,
   },
   explore: {
     actual: 0,
@@ -30,6 +30,10 @@ let NestNeeds = {
     actual: 0,
     need: 100,
   },
+  expand: {
+    actual: 0,
+    need: 200,
+  },
 }
 
 setInterval(() => {
@@ -39,7 +43,7 @@ setInterval(() => {
 }, 100)
 
 export const Create = (engine, rootingCallback) => {
-  const space_size = 200
+  const space_size = 250
   const scene = getNewScene(engine)
   // scene.enablePhysics(new BABYLON.Vector3(0, -10, 0), new BABYLON.CannonJSPlugin())
   const camera = getNewCamera('mainCamera01', scene, canvas, space_size)

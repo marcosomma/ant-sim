@@ -4,13 +4,18 @@ import { createSphere } from '../commons/meshCreator'
 
 // AntTypes : [ {workers: W}, {protector: P} ]
 
-const TASKS = { P: ['perimetral'], W: ['explore', 'collect', 'store', 'cleaning'] }
+const TASKS = {
+  P: ['perimetral', 'explore', 'collect', 'cleaning', 'expand'],
+  W: ['explore', 'collect', 'store', 'cleaning', 'expand'],
+}
+const TIME_INTERVAL = 11e3
 export const TASK_POSITIONS = {
-  perimetral: new BABYLON.Vector3(-200, 0, -100),
+  perimetral: new BABYLON.Vector3(-Math.random() * 200, 0, Math.random() * 200),
   explore: new BABYLON.Vector3(-Math.random() * 200, 0, -Math.random() * 200),
-  collect: new BABYLON.Vector3(-200, 0, -200),
-  store: new BABYLON.Vector3(10, -100, 10),
-  cleaning: new BABYLON.Vector3(-Math.random() * 40, 0, -Math.random() * 40),
+  collect: new BABYLON.Vector3(Math.random() * 200, 0, -Math.random() * 200),
+  store: new BABYLON.Vector3(10, -50, 10),
+  expand: new BABYLON.Vector3(-30, -100, -30),
+  cleaning: new BABYLON.Vector3(Math.random() * 40, 0, Math.random() * 40),
 }
 
 const getGeneticOrientedTask = (type) => TASKS[type][Math.floor(Math.random() * TASKS[type].length)]
@@ -65,7 +70,7 @@ export default class Ant {
 
   live() {
     this.performTask()
-    setInterval(() => this.performTask(), Math.floor(Math.random() * 6e3))
+    setInterval(() => this.performTask(), Math.floor(Math.random() * TIME_INTERVAL))
     setInterval(() => this.decreseTasks(), 1e3)
   }
 
@@ -86,7 +91,7 @@ export default class Ant {
       this.data.body,
       'position',
       30,
-      150,
+      TIME_INTERVAL / 100,
       this.data.body.position,
       this.data.target,
       BABYLON.Animation.ANIMATIONLOOPMODE_CONSTANT
@@ -153,7 +158,10 @@ export default class Ant {
   }
 
   setInfluence(encountredAnt) {
-    if (this.data.type === 'W' && encountredAnt.data.beheviour.actualTask.type === 'perimetral')
+    if (
+      (this.data.type === 'W' && encountredAnt.data.beheviour.actualTask.type === 'perimetral') ||
+      (this.data.type === 'P' && encountredAnt.data.beheviour.actualTask.type === 'store')
+    )
       return
     if (!this.data.beheviour.rankTasks[encountredAnt.data.beheviour.actualTask.type])
       this.data.beheviour.rankTasks[encountredAnt.data.beheviour.actualTask.type] =
