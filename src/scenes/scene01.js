@@ -10,27 +10,27 @@ export const registerEventListener = () => {
 }
 
 let NestNeeds = {
-  perimetral: {
+  Protection: {
     actual: 0,
     need: 30,
   },
-  explore: {
+  Exploration: {
     actual: 0,
     need: 150,
   },
-  collect: {
+  Collect: {
     actual: 0,
     need: 300,
   },
-  store: {
+  Store: {
     actual: 0,
     need: 50,
   },
-  cleaning: {
+  Cleaning: {
     actual: 0,
     need: 100,
   },
-  expand: {
+  Expansion: {
     actual: 0,
     need: 200,
   },
@@ -51,7 +51,7 @@ export const Create = (engine, rootingCallback) => {
   const test_AdvancedTexture = GUI.AdvancedDynamicTexture.CreateFullscreenUI('ui1', scene)
 
   Object.keys(TASK_POSITIONS).forEach((task) => {
-    let taskBox = BABYLON.Mesh.CreateBox(`${task}-box`, 3, scene)
+    let taskBox = BABYLON.Mesh.CreateBox(`${task}-box`, .1, scene)
     taskBox.position = TASK_POSITIONS[task]
     createLabel(test_AdvancedTexture, taskBox, task)
   })
@@ -61,7 +61,33 @@ export const Create = (engine, rootingCallback) => {
     let ant = new Ant(type, camera, scene)
 
     ant.setNestCallback = (task) => {
-      if (NestNeeds[task.type].actual > NestNeeds[task.type].need) NestNeeds[task.type].actual += 1
+      if (NestNeeds[task.type].actual > NestNeeds[task.type].need) {
+        NestNeeds[task.type].actual += 1
+      }
+      NestNeeds.Collect.need += 1
+      switch (task.type) {
+        case 'Protection':
+
+          break;
+        case 'Exploration':
+          NestNeeds.Store.need += .1
+          break;
+        case 'Collect':
+          NestNeeds.Store.need += 1
+          break;
+        case 'Store':
+
+          break;
+        case 'Expansion':
+          NestNeeds.Cleaning.need += 1
+          break;
+        case 'Cleaning':
+
+          break;
+
+        default:
+          break;
+      }
       ant.setNestNeeds = NestNeeds
     }
     ant.setNestNeeds = NestNeeds
@@ -73,9 +99,9 @@ export const Create = (engine, rootingCallback) => {
     ant.registerCollider(ants)
   })
   console.log('Ants:', ants)
-  scene.registerBeforeRender(() => {})
+  scene.registerBeforeRender(() => { })
 
-  engine.runRenderLoop(() => {})
+  engine.runRenderLoop(() => { })
 
   return scene
 }

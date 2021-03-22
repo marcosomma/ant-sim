@@ -5,17 +5,17 @@ import { createSphere } from '../commons/meshCreator'
 // AntTypes : [ {workers: W}, {protector: P} ]
 
 const TASKS = {
-  P: ['perimetral', 'explore', 'collect', 'cleaning', 'expand'],
-  W: ['explore', 'collect', 'store', 'cleaning', 'expand'],
+  P: ['Protection', 'Exploration', 'Collect', 'Cleaning', 'Expansion'],
+  W: ['Exploration', 'Collect', 'Store', 'Cleaning', 'Expansion'],
 }
 const TIME_INTERVAL = 11e3
 export const TASK_POSITIONS = {
-  perimetral: new BABYLON.Vector3(-Math.random() * 200, 0, Math.random() * 200),
-  explore: new BABYLON.Vector3(-Math.random() * 200, 0, -Math.random() * 200),
-  collect: new BABYLON.Vector3(Math.random() * 200, 0, -Math.random() * 200),
-  store: new BABYLON.Vector3(10, -50, 10),
-  expand: new BABYLON.Vector3(-30, -100, -30),
-  cleaning: new BABYLON.Vector3(Math.random() * 40, 0, Math.random() * 40),
+  Protection: new BABYLON.Vector3(-100, 0, 100),
+  Exploration: new BABYLON.Vector3(-100, 0, -100),
+  Collect: new BABYLON.Vector3(100, 0, -100),
+  Store: new BABYLON.Vector3(30, -100, -30),
+  Expansion: new BABYLON.Vector3(-30, -100, 30),
+  Cleaning: new BABYLON.Vector3(100, 0, 100),
 }
 
 const getGeneticOrientedTask = (type) => TASKS[type][Math.floor(Math.random() * TASKS[type].length)]
@@ -159,8 +159,8 @@ export default class Ant {
 
   setInfluence(encountredAnt) {
     if (
-      (this.data.type === 'W' && encountredAnt.data.beheviour.actualTask.type === 'perimetral') ||
-      (this.data.type === 'P' && encountredAnt.data.beheviour.actualTask.type === 'store')
+      (this.data.type === 'W' && encountredAnt.data.beheviour.actualTask.type === 'Protection') ||
+      (this.data.type === 'P' && encountredAnt.data.beheviour.actualTask.type === 'Store')
     )
       return
     if (!this.data.beheviour.rankTasks[encountredAnt.data.beheviour.actualTask.type])

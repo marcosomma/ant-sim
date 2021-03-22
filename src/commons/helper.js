@@ -118,7 +118,7 @@ export const createLabel = (advancedTexture, mesh, customText) => {
 
   text.text = textToDisplay
   text.alpha = 1
-  text.color = '#00f'
+  text.color = '#fff'
   text.style = style
   label.addControl(text)
 
