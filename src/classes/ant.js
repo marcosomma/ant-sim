@@ -6,19 +6,20 @@ import { createSphere } from '../commons/meshCreator'
 
 const TASKS = {
   P: ['Protection', 'Exploration', 'Collect', 'Cleaning', 'Expansion'],
-  W: ['Exploration', 'Collect', 'Store', 'Cleaning', 'Expansion'],
+  W: ['Collect', 'Exploration', 'Store', 'Cleaning', 'Expansion'],
 }
-const TIME_INTERVAL = 11e3
+const TIME_INTERVAL = 10e3
 export const TASK_POSITIONS = {
   Protection: new BABYLON.Vector3(-100, 0, 100),
   Exploration: new BABYLON.Vector3(-100, 0, -100),
   Collect: new BABYLON.Vector3(100, 0, -100),
-  Store: new BABYLON.Vector3(30, -100, -30),
-  Expansion: new BABYLON.Vector3(-30, -100, 30),
+  Store: new BABYLON.Vector3(50, -100, -50),
+  Expansion: new BABYLON.Vector3(-50, -100, 50),
   Cleaning: new BABYLON.Vector3(100, 0, 100),
 }
 
 const getGeneticOrientedTask = (type) => TASKS[type][Math.floor(Math.random() * TASKS[type].length)]
+const getGeneticMainTask = (type) => TASKS[type][0]
 
 const getSize = (type) => {
   switch (type) {
@@ -36,7 +37,7 @@ export default class Ant {
       type,
       size: getSize(type),
       beheviour: {
-        geneticOrientedTask: getGeneticOrientedTask(type),
+        getGeneticMainTask: getGeneticMainTask(type),
         actualTask: {
           type: getGeneticOrientedTask(type),
           interactionPercentage: Math.floor(Math.random() * 49),
@@ -91,7 +92,7 @@ export default class Ant {
       this.data.body,
       'position',
       30,
-      TIME_INTERVAL / 100,
+      TIME_INTERVAL / 200,
       this.data.body.position,
       this.data.target,
       BABYLON.Animation.ANIMATIONLOOPMODE_CONSTANT
@@ -110,11 +111,24 @@ export default class Ant {
 
       if (this.data.nestNeeds) {
         Object.keys(this.data.nestNeeds).forEach((need) => {
-          if (
-            this.data.nestNeeds[need].actual === this.data.nestNeeds[need].need &&
-            this.data.beheviour.rankTasks[need] !== 0
-          ) {
-            this.data.beheviour.rankTasks[need] = 0
+          if (this.data.beheviour.rankTasks[need] !== 0) {
+            if (this.data.nestNeeds[need].actual >= this.data.nestNeeds[need].need)
+              this.data.beheviour.rankTasks[need] = 0
+            if (
+              (this.data.beheviour.rankTasks[need] +=
+                (this.data.nestNeeds[need].need / this.data.nestNeeds[need].actual) * need ===
+                this.data.beheviour.getGeneticMainTask
+                  ? 10
+                  : 1 < 99)
+            ) {
+              this.data.beheviour.rankTasks[need] +=
+                (this.data.nestNeeds[need].need / this.data.nestNeeds[need].actual) * need ===
+                this.data.beheviour.getGeneticMainTask
+                  ? 10
+                  : 1
+            } else {
+              this.data.beheviour.rankTasks[need] = 100
+            }
           }
         })
       }
@@ -124,17 +138,15 @@ export default class Ant {
       })
 
       sortedRankedTasks.sort(function (a, b) {
-        return a[1] - b[1]
+        return b[1] - a[1]
       })
 
-      if (this.data.nestCallback) this.data.nestCallback()
+      this.data.nestCallback(this.data.beheviour.actualTask)
 
-      if (sortedRankedTasks.length) {
-        this.data.target = TASK_POSITIONS[sortedRankedTasks[0][0]]
-        this.data.beheviour.actualTask.task = sortedRankedTasks[0][0]
-        this.data.beheviour.actualTask.interactionPercentage = sortedRankedTasks[0][1]
-        this.data.beheviour.actualTask.lastInteraction = Date.now()
-      }
+      this.data.target = TASK_POSITIONS[sortedRankedTasks[0][0]]
+      this.data.beheviour.actualTask.type = sortedRankedTasks[0][0]
+      this.data.beheviour.actualTask.interactionPercentage = sortedRankedTasks[0][1]
+      this.data.beheviour.actualTask.lastInteraction = Date.now()
     }
   }
 
@@ -168,11 +180,11 @@ export default class Ant {
         encountredAnt.data.beheviour.actualTask.interactionPercentage
     if (this.data.beheviour.rankTasks[encountredAnt.data.beheviour.actualTask.type] < 100)
       this.data.beheviour.rankTasks[encountredAnt.data.beheviour.actualTask.type] +=
-        encountredAnt.data.beheviour.actualTask.interactionPercentage * 0.001
+        encountredAnt.data.beheviour.actualTask.interactionPercentage * 0.1
   }
 
   set setNestCallback(cb) {
-    this.data.nestCallback = () => cb(this.data.beheviour.actualTask)
+    this.data.nestCallback = (actualTask) => cb(actualTask)
   }
 
   set setNestNeeds(needs) {
