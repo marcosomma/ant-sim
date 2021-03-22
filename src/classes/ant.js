@@ -1,4 +1,4 @@
-import uuid from 'uuid'
+import { v1 } from 'uuid'
 import * as BABYLON from 'babylonjs'
 import { createSphere } from '../commons/meshCreator'
 
@@ -32,7 +32,7 @@ const getSize = (type) => {
 export default class Ant {
   constructor(type, camera, scene) {
     let ant = {
-      id: uuid.v1(),
+      id: v1(),
       type,
       size: getSize(type),
       beheviour: {
