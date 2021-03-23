@@ -1,8 +1,5 @@
 import * as BABYLON from 'babylonjs'
-import {
-  Create as CreateScene01,
-  registerEventListener as registerEventListenerScene01,
-} from './scenes/scene01'
+import { Create as CreateScene01 } from './scenes/scene01'
 const canvas = document.getElementById('renderCanvas')
 const engine = new BABYLON.Engine(canvas)
 const changeRoot = (newRoot) => (root = newRoot)
@@ -23,7 +20,6 @@ const renderScene = () => {
         switch (root) {
           default:
             scene = CreateScene01(engine, changeRoot)
-            registerEventListenerScene01()
             break
         }
         oldRoot = root

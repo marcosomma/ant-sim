@@ -5,10 +5,10 @@ import { createSphere } from '../commons/meshCreator'
 // AntTypes : [ {workers: W}, {protector: P} ]
 
 const TASKS = {
-  P: ['Protection', 'Exploration', 'Collect', 'Cleaning', 'Expansion'],
-  W: ['Collect', 'Exploration', 'Store', 'Cleaning', 'Expansion'],
+  P: ['Protection', 'Exploration', 'Collect'],
+  W: ['Collect', 'Store', 'Cleaning', 'Expansion'],
 }
-const TIME_INTERVAL = 10e3
+export const CHECK_TIME_INTERVAL = 5e3
 export const TASK_POSITIONS = {
   Protection: new BABYLON.Vector3(-100, 0, 100),
   Exploration: new BABYLON.Vector3(-100, 0, -100),
@@ -17,9 +17,17 @@ export const TASK_POSITIONS = {
   Expansion: new BABYLON.Vector3(-50, -100, 50),
   Cleaning: new BABYLON.Vector3(100, 0, 100),
 }
+export const TASK_PRIORITY = {
+  Protection: 0.3,
+  Exploration: 0.1,
+  Collect: 0.5,
+  Store: 0.25,
+  Expansion: 0.2,
+  Cleaning: 0.25,
+}
 
 const getGeneticOrientedTask = (type) => TASKS[type][Math.floor(Math.random() * TASKS[type].length)]
-const getGeneticMainTask = (type) => TASKS[type][0]
+const getGeneticMainTask = (type) => (type === 'P' ? TASKS[type][0] : getGeneticOrientedTask(type))
 
 const getSize = (type) => {
   switch (type) {
@@ -38,6 +46,7 @@ export default class Ant {
       size: getSize(type),
       bornAt: Date.now(),
       cloned: false,
+      reproducrionOn: true,
       beheviour: {
         getGeneticMainTask: getGeneticMainTask(type),
         actualTask: {
@@ -62,13 +71,14 @@ export default class Ant {
       scene
     )
 
-    ant.reproductionTime = Math.floor(Math.random() * 30e3) + 30e3
-    ant.lifeTime = Math.floor(Math.random() * 10e3) + ant.reproductionTime
-    ant.body.position = new BABYLON.Vector3(0, Math.random() * 5, 0)
+    ant.reproductionTime =
+      Math.floor(Math.random() * CHECK_TIME_INTERVAL * 5) + CHECK_TIME_INTERVAL * 5
+    ant.lifeTime = Math.floor(Math.random() * ant.reproductionTime) + ant.reproductionTime
+    ant.body.position = new BABYLON.Vector3(0, 0, 0)
     this.data = ant
     this.reportedCollision = false
     this.setTarget = TASK_POSITIONS[ant.beheviour.actualTask.type]
-    this.setNest = new BABYLON.Vector3(0, Math.random() * 5, 0)
+    this.setNest = new BABYLON.Vector3(0, 0, 0)
 
     return this
   }
@@ -77,17 +87,17 @@ export default class Ant {
     this.performTask()
     this.performTaskInterval = setInterval(
       () => this.performTask(),
-      Math.floor(Math.random() * TIME_INTERVAL)
+      Math.floor(Math.random() * CHECK_TIME_INTERVAL)
     )
-    this.decreseTaskInterval = setInterval(() => this.decreseTasks(), 1e3)
+    this.decreseTaskInterval = setInterval(() => this.decreseTasks(), CHECK_TIME_INTERVAL / 100)
   }
 
   performTask() {
     const lifeTime = Math.ceil(Math.abs(Date.now() - this.data.bornAt))
-    if (lifeTime >= this.data.lifeTime) {
+    if (lifeTime >= this.data.lifeTime && this.data.reproducrionOn) {
       return this.dispose()
     }
-    if (lifeTime >= this.data.reproductionTime && this.data.cloned === false) {
+    if (lifeTime >= this.data.reproductionTime && this.data.reproducrionOn && !this.data.cloned) {
       this.data.cloned === true
       return this.data.reproductionCallback(this.data.id)
     }
@@ -107,7 +117,7 @@ export default class Ant {
       this.data.body,
       'position',
       30,
-      TIME_INTERVAL / 200,
+      CHECK_TIME_INTERVAL / 200,
       this.data.body.position,
       this.data.target,
       BABYLON.Animation.ANIMATIONLOOPMODE_CONSTANT
@@ -115,14 +125,17 @@ export default class Ant {
   }
 
   findNewScope() {
+    let sortedRankedTasks = []
+    let preaviousTask = this.data.beheviour.getGeneticMainTask
     if (
       this.data.body.position.x !== this.data.nest.x ||
       this.data.body.position.z !== this.data.nest.z
     ) {
       this.setTarget = this.data.nest
       this.moveTo()
+      return
     } else {
-      let sortedRankedTasks = []
+      preaviousTask = (' ' + this.data.beheviour.actualTask.type).slice(1)
 
       if (this.data.nestNeeds) {
         Object.keys(this.data.nestNeeds).forEach((need) => {
@@ -134,15 +147,15 @@ export default class Ant {
                 (this.data.nestNeeds[need].need / this.data.nestNeeds[need].actual) * need ===
                 this.data.beheviour.getGeneticMainTask
                   ? 10
-                  : 1 < 99)
+                  : 2 < 99)
             ) {
               this.data.beheviour.rankTasks[need] +=
                 (this.data.nestNeeds[need].need / this.data.nestNeeds[need].actual) * need ===
                 this.data.beheviour.getGeneticMainTask
                   ? 10
-                  : 1
+                  : 2
             } else {
-              this.data.beheviour.rankTasks[need] = 100
+              this.data.beheviour.rankTasks[need] = 99
             }
           }
         })
@@ -156,12 +169,35 @@ export default class Ant {
         return b[1] - a[1]
       })
 
-      this.data.nestCallback(this.data.beheviour.actualTask)
+      // this.data.target = TASK_POSITIONS[sortedRankedTasks[0][0]]
+      // this.data.beheviour.actualTask.type = sortedRankedTasks[0][0]
+      // this.data.beheviour.actualTask.interactionPercentage = sortedRankedTasks[0][1]
+      // this.data.beheviour.actualTask.lastInteraction = Date.now()
 
-      this.data.target = TASK_POSITIONS[sortedRankedTasks[0][0]]
-      this.data.beheviour.actualTask.type = sortedRankedTasks[0][0]
-      this.data.beheviour.actualTask.interactionPercentage = sortedRankedTasks[0][1]
+      this.data.target = preaviousTask
+        ? this.data.nestNeeds[preaviousTask].dedicated_ants <= 0 &&
+          this.data.nestNeeds[preaviousTask].dedicated_ants >
+            this.data.nestNeeds[preaviousTask].min_dedicated_ants
+          ? TASK_POSITIONS[sortedRankedTasks[0][0]]
+          : TASK_POSITIONS[preaviousTask]
+        : TASK_POSITIONS[sortedRankedTasks[0][0]]
+      this.data.beheviour.actualTask.type = preaviousTask
+        ? this.data.nestNeeds[preaviousTask].dedicated_ants <= 0 &&
+          this.data.nestNeeds[preaviousTask].dedicated_ants >
+            this.data.nestNeeds[preaviousTask].min_dedicated_ants
+          ? sortedRankedTasks[0][0]
+          : preaviousTask
+        : sortedRankedTasks[0][0]
+      this.data.beheviour.actualTask.interactionPercentage = preaviousTask
+        ? this.data.nestNeeds[preaviousTask].dedicated_ants <= 0 &&
+          this.data.nestNeeds[preaviousTask].dedicated_ants >
+            this.data.nestNeeds[preaviousTask].min_dedicated_ants
+          ? sortedRankedTasks[0][1]
+          : this.data.beheviour.actualTask.interactionPercentage
+        : sortedRankedTasks[0][1]
       this.data.beheviour.actualTask.lastInteraction = Date.now()
+
+      this.data.nestCallback(this.data.id, this.data.beheviour.actualTask, preaviousTask)
     }
   }
 
@@ -178,22 +214,18 @@ export default class Ant {
 
   decreseTasks() {
     Object.keys(this.data.beheviour.rankTasks).map((task) => {
-      if (this.data.beheviour.rankTasks[task] > 1) this.data.beheviour.rankTasks[task] -= 1
+      if (this.data.beheviour.rankTasks[task] > 10) this.data.beheviour.rankTasks[task] -= 5
     })
   }
 
   setInfluence(encountredAnt) {
-    if (
-      (this.data.type === 'W' && encountredAnt.data.beheviour.actualTask.type === 'Protection') ||
-      (this.data.type === 'P' && encountredAnt.data.beheviour.actualTask.type === 'Store')
-    )
-      return
+    if (TASKS[this.data.type].indexOf(encountredAnt.data.beheviour.actualTask.type) === -1) return
     if (!this.data.beheviour.rankTasks[encountredAnt.data.beheviour.actualTask.type])
       this.data.beheviour.rankTasks[encountredAnt.data.beheviour.actualTask.type] =
-        encountredAnt.data.beheviour.actualTask.interactionPercentage
+        encountredAnt.data.beheviour.actualTask.interactionPercentage * 0.00001
     if (this.data.beheviour.rankTasks[encountredAnt.data.beheviour.actualTask.type] < 100)
       this.data.beheviour.rankTasks[encountredAnt.data.beheviour.actualTask.type] +=
-        encountredAnt.data.beheviour.actualTask.interactionPercentage * 0.1
+        encountredAnt.data.beheviour.actualTask.interactionPercentage * 0.00001
   }
 
   dispose() {
@@ -205,7 +237,7 @@ export default class Ant {
   }
 
   set setNestCallback(cb) {
-    this.data.nestCallback = (actualTask) => cb(actualTask)
+    this.data.nestCallback = (id, actualTask, preaviousTask) => cb(id, actualTask, preaviousTask)
   }
 
   set setReproductionCallback(cb) {
@@ -226,5 +258,9 @@ export default class Ant {
 
   set setNest(target) {
     this.data.nest = target
+  }
+
+  set setReproduction(value) {
+    this.data.reproducrionOn = value
   }
 }
