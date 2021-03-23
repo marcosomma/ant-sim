@@ -36,6 +36,8 @@ export default class Ant {
       id: v1(),
       type,
       size: getSize(type),
+      bornAt: Date.now(),
+      cloned: false,
       beheviour: {
         getGeneticMainTask: getGeneticMainTask(type),
         actualTask: {
@@ -60,6 +62,8 @@ export default class Ant {
       scene
     )
 
+    ant.reproductionTime = Math.floor(Math.random() * 30e3) + 30e3
+    ant.lifeTime = Math.floor(Math.random() * 10e3) + ant.reproductionTime
     ant.body.position = new BABYLON.Vector3(0, Math.random() * 5, 0)
     this.data = ant
     this.reportedCollision = false
@@ -71,11 +75,22 @@ export default class Ant {
 
   live() {
     this.performTask()
-    setInterval(() => this.performTask(), Math.floor(Math.random() * TIME_INTERVAL))
-    setInterval(() => this.decreseTasks(), 1e3)
+    this.performTaskInterval = setInterval(
+      () => this.performTask(),
+      Math.floor(Math.random() * TIME_INTERVAL)
+    )
+    this.decreseTaskInterval = setInterval(() => this.decreseTasks(), 1e3)
   }
 
   performTask() {
+    const lifeTime = Math.ceil(Math.abs(Date.now() - this.data.bornAt))
+    if (lifeTime >= this.data.lifeTime) {
+      return this.dispose()
+    }
+    if (lifeTime >= this.data.reproductionTime && this.data.cloned === false) {
+      this.data.cloned === true
+      return this.data.reproductionCallback(this.data.id)
+    }
     if (
       this.data.body.position.x !== this.data.target.x ||
       this.data.body.position.z !== this.data.target.z
@@ -112,7 +127,7 @@ export default class Ant {
       if (this.data.nestNeeds) {
         Object.keys(this.data.nestNeeds).forEach((need) => {
           if (this.data.beheviour.rankTasks[need] !== 0) {
-            if (this.data.nestNeeds[need].actual >= this.data.nestNeeds[need].need)
+            if (this.data.nestNeeds[need].actual > this.data.nestNeeds[need].need)
               this.data.beheviour.rankTasks[need] = 0
             if (
               (this.data.beheviour.rankTasks[need] +=
@@ -153,11 +168,9 @@ export default class Ant {
   registerCollider(list) {
     this.data.babylonElements.scene.registerBeforeRender(() => {
       list.forEach((element) => {
-        if (this.data.body.intersectsMesh(element.data.body, true) && !this.reportedCollision) {
+        if (this.data.body.intersectsMesh(element.data.body, true)) {
           this.setInfluence(element)
           this.reportedCollision = true
-        } else {
-          this.reportedCollision = false
         }
       })
     })
@@ -183,8 +196,24 @@ export default class Ant {
         encountredAnt.data.beheviour.actualTask.interactionPercentage * 0.1
   }
 
+  dispose() {
+    clearInterval(this.performTaskInterval)
+    clearInterval(this.decreseTaskInterval)
+    this.data.disposeCallback()
+    this.data.body.dispose()
+    return
+  }
+
   set setNestCallback(cb) {
     this.data.nestCallback = (actualTask) => cb(actualTask)
+  }
+
+  set setReproductionCallback(cb) {
+    this.data.reproductionCallback = () => cb(this.data.id)
+  }
+
+  set setDisposeCallback(cb) {
+    this.data.disposeCallback = () => cb(this.data.id)
   }
 
   set setNestNeeds(needs) {

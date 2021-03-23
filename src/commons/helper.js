@@ -141,7 +141,7 @@ export const createSimpleBtn = (id, text) => {
 export const createSimplePanel = (position, bgColor) => {
   let Panel = new GUI.StackPanel('mainStackPanel')
   Panel.zIndex = 1000
-  Panel.height = '60px'
+  Panel.height = '50%'
   Panel.width = '200px'
   Panel.background = bgColor || 'white'
   Panel.fontFamily = 'Roboto'
