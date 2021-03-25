@@ -10,6 +10,8 @@ export const BOLD_FONT = 500
 export const NORMAL_FONT = 400
 export const THINY_FONT = 100
 
+export const isEven = (value) => (value % 2 == 0 ? true : false)
+
 export const getTextBox = (id, text, color, fontWeight, fontSize, margins, alignment, resize) => {
   let textBox = new GUI.TextBlock(id)
   textBox.textWrapping = GUI.TextWrapping.WordWrap
@@ -141,7 +143,7 @@ export const createSimpleBtn = (id, text) => {
 export const createSimplePanel = (position, bgColor) => {
   let Panel = new GUI.StackPanel('mainStackPanel')
   Panel.zIndex = 1000
-  Panel.height = '100%'
+  Panel.height = '800px'
   Panel.width = '200px'
   Panel.background = bgColor || 'white'
   Panel.fontFamily = 'Roboto'

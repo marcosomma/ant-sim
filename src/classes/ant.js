@@ -5,10 +5,10 @@ import { createSphere } from '../commons/meshCreator'
 // AntTypes : [ {workers: W}, {protector: P} ]
 
 const TASKS = {
-  P: ['Protection', 'Exploration', 'Collect'],
-  W: ['Collect', 'Store', 'Cleaning', 'Expansion'],
+  P: ['Protection', 'Exploration', 'Collect', 'Expansion', 'Cleaning'],
+  W: ['Collect', 'Store', 'Cleaning', 'Expansion', 'Protection', 'Exploration'],
 }
-export const CHECK_TIME_INTERVAL = 5e3
+export const CHECK_TIME_INTERVAL = 10e3
 export const TASK_POSITIONS = {
   Protection: new BABYLON.Vector3(-100, 0, 100),
   Exploration: new BABYLON.Vector3(-100, 0, -100),
@@ -175,23 +175,20 @@ export default class Ant {
       // this.data.beheviour.actualTask.lastInteraction = Date.now()
 
       this.data.target = preaviousTask
-        ? this.data.nestNeeds[preaviousTask].dedicated_ants <= 0 &&
-          this.data.nestNeeds[preaviousTask].dedicated_ants >
-            this.data.nestNeeds[preaviousTask].min_dedicated_ants
+        ? this.data.nestNeeds[preaviousTask].dedicated_ants >
+          this.data.nestNeeds[preaviousTask].min_dedicated_ants
           ? TASK_POSITIONS[sortedRankedTasks[0][0]]
           : TASK_POSITIONS[preaviousTask]
         : TASK_POSITIONS[sortedRankedTasks[0][0]]
       this.data.beheviour.actualTask.type = preaviousTask
-        ? this.data.nestNeeds[preaviousTask].dedicated_ants <= 0 &&
-          this.data.nestNeeds[preaviousTask].dedicated_ants >
-            this.data.nestNeeds[preaviousTask].min_dedicated_ants
+        ? this.data.nestNeeds[preaviousTask].dedicated_ants >
+          this.data.nestNeeds[preaviousTask].min_dedicated_ants
           ? sortedRankedTasks[0][0]
           : preaviousTask
         : sortedRankedTasks[0][0]
       this.data.beheviour.actualTask.interactionPercentage = preaviousTask
-        ? this.data.nestNeeds[preaviousTask].dedicated_ants <= 0 &&
-          this.data.nestNeeds[preaviousTask].dedicated_ants >
-            this.data.nestNeeds[preaviousTask].min_dedicated_ants
+        ? this.data.nestNeeds[preaviousTask].dedicated_ants >
+          this.data.nestNeeds[preaviousTask].min_dedicated_ants
           ? sortedRankedTasks[0][1]
           : this.data.beheviour.actualTask.interactionPercentage
         : sortedRankedTasks[0][1]
@@ -204,6 +201,7 @@ export default class Ant {
   registerCollider(list) {
     this.data.babylonElements.scene.registerBeforeRender(() => {
       list.forEach((element) => {
+        if (!element.data) return
         if (this.data.body.intersectsMesh(element.data.body, true)) {
           this.setInfluence(element)
           this.reportedCollision = true
@@ -232,7 +230,6 @@ export default class Ant {
     clearInterval(this.performTaskInterval)
     clearInterval(this.decreseTaskInterval)
     this.data.disposeCallback()
-    this.data.body.dispose()
     return
   }
 
@@ -249,6 +246,9 @@ export default class Ant {
   }
 
   set setNestNeeds(needs) {
+    Object.keys(needs).map(
+      (task) => (this.data.beheviour.rankTasks[task] = (needs[task].need / needs[task].actual) * 10)
+    )
     this.data.nestNeeds = needs
   }
 

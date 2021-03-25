@@ -6,15 +6,18 @@ import {
   getNewLight,
   createLabel,
   createSimplePanel,
+  isEven,
 } from '../commons/helper'
 import Ant, { TASK_POSITIONS, TASK_PRIORITY } from '../classes/ant'
 
 const canvas = document.getElementById('renderCanvas')
-const MAX_ANTS = 250
+const MAX_ANTS = 200
 const REPRODUCTION_ON = false
 let start_ants = REPRODUCTION_ON ? Math.round(MAX_ANTS / 100) : MAX_ANTS
 let ants_arrived_to_the_nest_at_least_once = []
 let active_ants = ants_arrived_to_the_nest_at_least_once.length
+let latest_generation_ammount = REPRODUCTION_ON ? Math.round(MAX_ANTS / 100) : MAX_ANTS
+let generations = start_ants / latest_generation_ammount
 let ants = []
 
 let NestNeeds = {
@@ -57,7 +60,7 @@ let NestNeeds = {
 }
 
 const antBorn = (first, camera, scene) => {
-  let type = ['W', 'W', 'P', 'W', 'W', 'P'][Math.floor(Math.random() * 6)]
+  let type = ['W', 'W', 'P'][Math.floor(Math.random() * 3)]
   let ant = new Ant(type, camera, scene)
 
   ant.setNestCallback = (id, task, preaviousTask) => {
@@ -68,18 +71,16 @@ const antBorn = (first, camera, scene) => {
     NestNeeds[task.type].min_dedicated_ants = Math.round(
       (start_ants / 50) * TASK_PRIORITY[task.type]
     )
-    if (preaviousTask !== task.type) {
-      if (NestNeeds[preaviousTask].dedicated_ants > 0) NestNeeds[preaviousTask].dedicated_ants -= 1
-    }
-    NestNeeds[task.type].dedicated_ants += 1
-    NestNeeds[preaviousTask].actual += 1
+    NestNeeds[preaviousTask].dedicated_ants--
+    NestNeeds[task.type].dedicated_ants++
+    NestNeeds[preaviousTask].actual++
     NestNeeds.Collect.need += 0.25
     switch (task.type) {
       case 'Protection':
         NestNeeds.Collect.need += 0.25
         break
       case 'Exploration':
-        NestNeeds.Protection.need += 1
+        NestNeeds.Protection.need++
         NestNeeds.Collect.actual += 0.25
         break
       case 'Collect':
@@ -105,16 +106,17 @@ const antBorn = (first, camera, scene) => {
   }
   ant.setDisposeCallback = (id) => {
     let filtredAnts = ants.filter((ant) => {
-      return ant.data.id !== id
+      if (ant.data && ant.data.id === id) ant.data.body.dispose()
+      return ant.data && ant.data.id !== id
     })
-    ants = filtredAnts
-    NestNeeds.Expansion.need -= 1
-    start_ants -= 1
+    start_ants--
+    NestNeeds.Expansion.need--
+    ants = new Array(filtredAnts)
   }
   ant.setReproductionCallback = (id) => {
     if (ants.length < MAX_ANTS) {
       antBorn(false, camera, scene)
-      start_ants += 1
+      start_ants++
     }
   }
   ant.setNestNeeds = NestNeeds
@@ -122,28 +124,27 @@ const antBorn = (first, camera, scene) => {
   ant.live()
   if (!first) ant.registerCollider(ants)
   ants.push(ant)
-  NestNeeds.Expansion.need += 1
+  NestNeeds.Expansion.need++
 }
 
 const creatGUI = (test_AdvancedTexture) => {
   const Panel = createSimplePanel({})
   let TitleBox = new GUI.TextBlock('title')
-  TitleBox.textWrapping = GUI.TextWrapping.WordWrap
   TitleBox.fontFamily = 'Roboto'
   TitleBox.fontSize = '20px'
-  TitleBox.textHorizontalAlignment = 0
-  TitleBox.textVerticalAlignment = 0
-  TitleBox.paddingTop = 10
-  TitleBox.paddingLeft = 10
+  TitleBox.textHorizontalAlignment = GUI.Control.HORIZONTAL_ALIGNMENT_LEFT
+  TitleBox.textVerticalAlignment = GUI.Control.VERTICAL_ALIGNMENT_TOP
+  TitleBox.paddingTop = '10px'
+  TitleBox.paddingLeft = '10px'
   TitleBox.text = 'Anthill Score'
   let textBox = new GUI.TextBlock('score')
-  textBox.textWrapping = GUI.TextWrapping.WordWrap
   textBox.fontFamily = 'Roboto'
   textBox.fontSize = '13px'
-  textBox.textHorizontalAlignment = 0
-  textBox.textVerticalAlignment = 0
-  textBox.paddingTop = 50
-  textBox.paddingLeft = 10
+  textBox.textHorizontalAlignment = GUI.Control.HORIZONTAL_ALIGNMENT_LEFT
+  textBox.textVerticalAlignment = GUI.Control.VERTICAL_ALIGNMENT_TOP
+  textBox.paddingTop = '50px'
+  textBox.paddingLeft = '10px'
+  textBox.height = '750px'
 
   Panel.addControl(TitleBox)
   Panel.addControl(textBox)
@@ -174,6 +175,8 @@ export const Create = (engine, rootingCallback) => {
 
   ants.forEach((ant) => {
     ant.registerCollider(ants)
+    NestNeeds[ant.data.beheviour.actualTask.type].dedicated_ants++
+    ant.setNestNeeds = NestNeeds
   })
 
   let textBox = creatGUI(test_AdvancedTexture)
@@ -181,11 +184,18 @@ export const Create = (engine, rootingCallback) => {
   scene.registerBeforeRender(() => {})
 
   engine.runRenderLoop(() => {
+    if (
+      Math.floor(active_ants / latest_generation_ammount) > 0 &&
+      Math.floor(active_ants / latest_generation_ammount) === 2
+    ) {
+      latest_generation_ammount = latest_generation_ammount * 2
+      generations++
+    }
     textBox.text = JSON.stringify(
       {
         totalAnts: ants.length,
         active_ants,
-        inactive_ants: start_ants - active_ants,
+        generations,
         ...NestNeeds,
       },
       null,
