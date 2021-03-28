@@ -154,7 +154,7 @@ export default class Ant {
     return this.data.nestNeeds[preaviousTask].dedicated_ants >= this.data.nestNeeds[preaviousTask].min_dedicated_ants
   }
 
-  shouldSwitchTask(preaviousTask, actualTask) {
+  shouldSwitchTask(preaviousTask) {
     let isNeeded = this.data.nestNeeds[preaviousTask].actual + this.data.nestNeeds[preaviousTask].dedicated_ants >= this.data.nestNeeds[preaviousTask].need
     // let willAddValue = this.data.nestNeeds[actualTask].actual + this.data.nestNeeds[actualTask].dedicated_ants >= this.data.nestNeeds[actualTask].need
     return isNeeded && this.minimumAntsPerTask(preaviousTask)
@@ -187,7 +187,7 @@ export default class Ant {
   }
 
   assignNewTask(preaviousTask, actualTask) {
-    let shouldSwitchTask = this.shouldSwitchTask(preaviousTask, actualTask[0])
+    let shouldSwitchTask = preaviousTask && this.shouldSwitchTask(preaviousTask)
     this.data.target = shouldSwitchTask ? TASK_POSITIONS[actualTask[0]] : TASK_POSITIONS[preaviousTask]
     this.data.beheviour.actualTask.type = shouldSwitchTask ? actualTask[0] : preaviousTask
     this.data.beheviour.actualTask.interactionPercentage = shouldSwitchTask ? actualTask[1] : this.data.beheviour.actualTask.interactionPercentage
