@@ -1,22 +1,15 @@
 import * as BABYLON from 'babylonjs'
 import * as GUI from 'babylonjs-gui'
-import {
-  getNewScene,
-  getNewCamera,
-  getNewLight,
-  createLabel,
-  createSimplePanel,
-  isEven,
-} from '../commons/helper'
+import { getNewScene, getNewCamera, getNewLight, createLabel, createSimplePanel, isEven } from '../commons/helper'
 import Ant, { TASK_POSITIONS, TASK_PRIORITY } from '../classes/ant'
 
 const canvas = document.getElementById('renderCanvas')
 const MAX_ANTS = 200
 const REPRODUCTION_ON = false
-let start_ants = REPRODUCTION_ON ? Math.round(MAX_ANTS / 100) : MAX_ANTS
+let start_ants = REPRODUCTION_ON ? Math.round(MAX_ANTS / 2.5) : MAX_ANTS
 let ants_arrived_to_the_nest_at_least_once = []
 let active_ants = ants_arrived_to_the_nest_at_least_once.length
-let latest_generation_ammount = REPRODUCTION_ON ? Math.round(MAX_ANTS / 100) : MAX_ANTS
+let latest_generation_ammount = REPRODUCTION_ON ? start_ants : MAX_ANTS
 let generations = start_ants / latest_generation_ammount
 let ants = []
 
@@ -68,9 +61,7 @@ const antBorn = (first, camera, scene) => {
       ants_arrived_to_the_nest_at_least_once.push(id)
     }
     active_ants = ants_arrived_to_the_nest_at_least_once.length
-    NestNeeds[task.type].min_dedicated_ants = Math.round(
-      (start_ants / 50) * TASK_PRIORITY[task.type]
-    )
+    NestNeeds[task.type].min_dedicated_ants = Math.round((start_ants / 50) * TASK_PRIORITY[task.type])
     NestNeeds[preaviousTask].dedicated_ants--
     NestNeeds[task.type].dedicated_ants++
     NestNeeds[preaviousTask].actual++
@@ -82,6 +73,7 @@ const antBorn = (first, camera, scene) => {
       case 'Exploration':
         NestNeeds.Protection.need++
         NestNeeds.Collect.actual += 0.25
+        NestNeeds.Store.actual += 0.125
         break
       case 'Collect':
         NestNeeds.Store.need += 0.5
@@ -184,10 +176,7 @@ export const Create = (engine, rootingCallback) => {
   scene.registerBeforeRender(() => {})
 
   engine.runRenderLoop(() => {
-    if (
-      Math.floor(active_ants / latest_generation_ammount) > 0 &&
-      Math.floor(active_ants / latest_generation_ammount) === 2
-    ) {
+    if (Math.floor(active_ants / latest_generation_ammount) > 0 && Math.floor(active_ants / latest_generation_ammount) === 2) {
       latest_generation_ammount = latest_generation_ammount * 2
       generations++
     }
