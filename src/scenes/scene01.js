@@ -64,7 +64,7 @@ const antBorn = (first, camera, scene) => {
     NestNeeds[task.type].min_dedicated_ants = Math.round((start_ants / 50) * TASK_PRIORITY[task.type])
     NestNeeds[preaviousTask].dedicated_ants--
     NestNeeds[task.type].dedicated_ants++
-    NestNeeds[preaviousTask].actual++
+    NestNeeds[preaviousTask].actual += 1
     NestNeeds.Collect.need += 0.25
     switch (task.type) {
       case 'Protection':
@@ -111,12 +111,10 @@ const antBorn = (first, camera, scene) => {
       start_ants++
     }
   }
-  ant.setNestNeeds = NestNeeds
   ant.setReproduction = REPRODUCTION_ON
-  ant.live()
   if (!first) ant.registerCollider(ants)
+  NestNeeds.Expansion.need += type === 'P' ? 1 : 0.5
   ants.push(ant)
-  NestNeeds.Expansion.need++
 }
 
 const creatGUI = (test_AdvancedTexture) => {
@@ -169,6 +167,7 @@ export const Create = (engine, rootingCallback) => {
     ant.registerCollider(ants)
     NestNeeds[ant.data.beheviour.actualTask.type].dedicated_ants++
     ant.setNestNeeds = NestNeeds
+    ant.live()
   })
 
   let textBox = creatGUI(test_AdvancedTexture)

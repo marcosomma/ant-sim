@@ -3,26 +3,26 @@ import * as BABYLON from 'babylonjs'
 import { createSphere } from '../commons/meshCreator'
 
 // AntTypes : [ {workers: W}, {protector: P} ]
-
+const ANT_INFLUENCE_FACTOR = 0.00001
 const TASKS = {
-  P: ['Protection', 'Exploration', 'Collect', 'Expansion', 'Cleaning'],
-  W: ['Collect', 'Store', 'Cleaning', 'Expansion', 'Protection', 'Exploration'],
+  P: ['Protection', 'Store', 'Cleaning', 'Expansion', 'Exploration', 'Collect'],
+  W: ['Collect', 'Store', 'Cleaning', 'Expansion', 'Exploration', 'Collect'],
 }
-export const CHECK_TIME_INTERVAL = 10e3
+export const CHECK_TIME_INTERVAL = 5e3
 export const TASK_POSITIONS = {
   Protection: new BABYLON.Vector3(-100, 0, 100),
   Exploration: new BABYLON.Vector3(-100, 0, -100),
   Collect: new BABYLON.Vector3(100, 0, -100),
-  Store: new BABYLON.Vector3(50, -100, -50),
-  Expansion: new BABYLON.Vector3(-50, -100, 50),
+  Store: new BABYLON.Vector3(50, -75, -50),
+  Expansion: new BABYLON.Vector3(-50, -75, 50),
   Cleaning: new BABYLON.Vector3(100, 0, 100),
 }
 export const TASK_PRIORITY = {
-  Protection: 0.3,
-  Exploration: 0.1,
-  Collect: 0.5,
+  Protection: 0.25,
+  Exploration: 0.25,
+  Collect: 0.25,
   Store: 0.25,
-  Expansion: 0.2,
+  Expansion: 0.25,
   Cleaning: 0.25,
 }
 
@@ -101,7 +101,9 @@ export default class Ant {
   }
 
   set setNestNeeds(needs) {
-    Object.keys(needs).map((task) => (this.data.beheviour.rankTasks[task] = (needs[task].need / needs[task].actual) * 10))
+    Object.keys(needs).forEach((task) => {
+      if (!this.data.beheviour.rankTasks[task]) this.data.beheviour.rankTasks[task] = (needs[task].need / needs[task].actual) * 10
+    })
     this.data.nestNeeds = needs
   }
 
@@ -140,7 +142,8 @@ export default class Ant {
   }
 
   getSimulatedValue(task) {
-    return (this.data.beheviour.rankTasks[task] += this.data.nestNeeds[task].need / this.data.nestNeeds[task].actual)
+    return (this.data.beheviour.rankTasks[task] +=
+      (this.data.nestNeeds[task].need / (this.data.nestNeeds[task].actual + this.data.nestNeeds[task].dedicated_ants)) * (task === this.data.beheviour.getGeneticMainTask ? 2 : 1))
   }
 
   simulateRankResult(simulatedImplement) {
@@ -148,20 +151,22 @@ export default class Ant {
   }
 
   minimumAntsPerTask(preaviousTask) {
-    return this.data.nestNeeds[preaviousTask].dedicated_ants > this.data.nestNeeds[preaviousTask].min_dedicated_ants
+    return this.data.nestNeeds[preaviousTask].dedicated_ants >= this.data.nestNeeds[preaviousTask].min_dedicated_ants
   }
 
-  shouldSwitchTask(preaviousTask) {
-    return preaviousTask && this.minimumAntsPerTask(preaviousTask)
+  shouldSwitchTask(preaviousTask, actualTask) {
+    let isNeeded = this.data.nestNeeds[preaviousTask].actual + this.data.nestNeeds[preaviousTask].dedicated_ants >= this.data.nestNeeds[preaviousTask].need
+    // let willAddValue = this.data.nestNeeds[actualTask].actual + this.data.nestNeeds[actualTask].dedicated_ants >= this.data.nestNeeds[actualTask].need
+    return isNeeded && this.minimumAntsPerTask(preaviousTask)
   }
 
   rankingNeeds() {
     Object.keys(this.data.nestNeeds).forEach((need) => {
       if (this.data.beheviour.rankTasks[need] !== 0) {
         let simulatedNeedImplement = this.getSimulatedValue(need)
-        if (this.isOveractingOnActualNeed(need)) this.data.beheviour.rankTasks[need] = 0
+        if (this.isOveractingOnActualNeed(need)) this.data.beheviour.rankTasks[need] = 99
         if (this.simulateRankResult(simulatedNeedImplement)) {
-          this.data.beheviour.rankTasks[need] = simulatedNeedImplement
+          this.data.beheviour.rankTasks[need] += simulatedNeedImplement - this.data.beheviour.rankTasks[need]
         } else {
           this.data.beheviour.rankTasks[need] = 99
         }
@@ -182,16 +187,19 @@ export default class Ant {
   }
 
   assignNewTask(preaviousTask, actualTask) {
-    this.data.target = this.shouldSwitchTask(preaviousTask) ? TASK_POSITIONS[actualTask[0]] : TASK_POSITIONS[preaviousTask]
-    this.data.beheviour.actualTask.type = this.shouldSwitchTask(preaviousTask) ? actualTask[0] : preaviousTask
-    this.data.beheviour.actualTask.interactionPercentage = this.shouldSwitchTask(preaviousTask) ? actualTask[1] : this.data.beheviour.actualTask.interactionPercentage
+    let shouldSwitchTask = this.shouldSwitchTask(preaviousTask, actualTask[0])
+    this.data.target = shouldSwitchTask ? TASK_POSITIONS[actualTask[0]] : TASK_POSITIONS[preaviousTask]
+    this.data.beheviour.actualTask.type = shouldSwitchTask ? actualTask[0] : preaviousTask
+    this.data.beheviour.actualTask.interactionPercentage = shouldSwitchTask ? actualTask[1] : this.data.beheviour.actualTask.interactionPercentage
     this.data.beheviour.actualTask.lastInteraction = Date.now()
+    return this.data
   }
 
   live() {
+    this.data.body.position = this.data.nest
     this.performTask()
     this.performTaskInterval = setInterval(() => this.performTask(), Math.floor(Math.random() * CHECK_TIME_INTERVAL))
-    this.decreseTaskInterval = setInterval(() => this.decreseTasks(), CHECK_TIME_INTERVAL / 100)
+    this.decreseTaskInterval = setInterval(() => this.decreseTasks(), CHECK_TIME_INTERVAL / 250)
   }
 
   performTask() {
@@ -220,10 +228,8 @@ export default class Ant {
       }
       let preaviousTask = (' ' + this.data.beheviour.actualTask.type).slice(1)
       let sortedRankedTasks = this.getSortedRankTasks([])
-      // sortedRankedTasks.forEach((task, i) => {
-      //   this.data.rankTasks[task] = sortedRankedTasks[i][1]
-      // })
-      this.assignNewTask(preaviousTask, sortedRankedTasks[0])
+      let nextTask = preaviousTask === sortedRankedTasks[0][0] ? sortedRankedTasks[1] : sortedRankedTasks[0]
+      this.assignNewTask(preaviousTask, nextTask)
       this.data.nestCallback(this.data.id, this.data.beheviour.actualTask, preaviousTask)
     }
   }
@@ -234,7 +240,7 @@ export default class Ant {
       this.data.body,
       'position',
       30,
-      CHECK_TIME_INTERVAL / 200,
+      CHECK_TIME_INTERVAL / 100,
       this.data.body.position,
       this.data.target,
       BABYLON.Animation.ANIMATIONLOOPMODE_CONSTANT
@@ -255,15 +261,17 @@ export default class Ant {
 
   decreseTasks() {
     Object.keys(this.data.beheviour.rankTasks).map((task) => {
-      if (this.data.beheviour.rankTasks[task] > 10) this.data.beheviour.rankTasks[task] -= 9
+      if (this.data.beheviour.rankTasks[task] > 10) this.data.beheviour.rankTasks[task] -= 1
     })
   }
 
   setInfluence(encountredAnt) {
-    if (!this.data.beheviour.rankTasks[encountredAnt.data.beheviour.actualTask.type])
-      this.data.beheviour.rankTasks[encountredAnt.data.beheviour.actualTask.type] = encountredAnt.data.beheviour.actualTask.interactionPercentage * 0.00001
+    if (TASKS[this.data.type].indexOf(encountredAnt.data.beheviour.actualTask.type) === -1 && this.data.beheviour.rankTasks[encountredAnt.data.beheviour.actualTask.type] < 80)
+      return
+    // if (!this.data.beheviour.rankTasks[encountredAnt.data.beheviour.actualTask.type])
+    //   this.data.beheviour.rankTasks[encountredAnt.data.beheviour.actualTask.type] = encountredAnt.data.beheviour.actualTask.interactionPercentage * 0.00001
     if (this.data.beheviour.rankTasks[encountredAnt.data.beheviour.actualTask.type] < 99)
-      this.data.beheviour.rankTasks[encountredAnt.data.beheviour.actualTask.type] += encountredAnt.data.beheviour.actualTask.interactionPercentage * 0.00001
+      this.data.beheviour.rankTasks[encountredAnt.data.beheviour.actualTask.type] += encountredAnt.data.beheviour.actualTask.interactionPercentage * ANT_INFLUENCE_FACTOR
   }
 
   dispose() {
