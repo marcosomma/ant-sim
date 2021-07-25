@@ -6,7 +6,6 @@ import {
   getNewLight,
   createLabel,
   createSimplePanel,
-  isEven,
 } from '../commons/helper'
 import Ant, { TASK_POSITIONS, TASK_PRIORITY } from '../classes/ant'
 
