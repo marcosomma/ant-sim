@@ -5,8 +5,8 @@ import { createSphere } from '../commons/meshCreator'
 // AntTypes : [ {workers: W}, {protector: P} ]
 const ANT_INFLUENCE_FACTOR = 0.00005
 const TASKS = {
-  P: ['Protection', 'Store', 'Cleaning', 'Expansion', 'Exploration', 'Collect'],
-  W: ['Collect', 'Store', 'Cleaning', 'Expansion', 'Exploration', 'Protection'],
+  P: ['Protection', 'Store', 'Cleaning', 'Expansion', 'Exploration'],
+  W: ['Collect', 'Store', 'Cleaning', 'Expansion', 'Exploration'],
 }
 export const CHECK_TIME_INTERVAL = 4e3
 export const TASK_POSITIONS = {
@@ -27,7 +27,7 @@ export const TASK_PRIORITY = {
 }
 
 const getGeneticOrientedTask = (type) => TASKS[type][Math.floor(Math.random() * TASKS[type].length)]
-const getReproductionTime = () => Math.floor(Math.random() * CHECK_TIME_INTERVAL * 30) + CHECK_TIME_INTERVAL * 30
+const getReproductionTime = () => Math.floor(Math.random() * CHECK_TIME_INTERVAL * 30)
 
 const getSize = (type) => {
   switch (type) {
@@ -45,6 +45,7 @@ const antObj = (type) => ({
   bornAt: Date.now(),
   cloned: false,
   reproducrionOn: true,
+  sleeping: false,
   reproductionTime: null,
   lifeTime: null,
   beheviour: {
@@ -108,7 +109,7 @@ export default class Ant {
 
   set setNestNeeds(needs) {
     Object.keys(needs).forEach((task) => {
-      if (!this.data.beheviour.rankTasks[task]) this.data.beheviour.rankTasks[task] = (needs[task].actual - needs[task].need) * this.data.beheviour.geneticalPriority[task]
+      if (!this.data.beheviour.rankTasks[task]) this.data.beheviour.rankTasks[task] = (needs[task].need / needs[task].actual) * this.data.beheviour.geneticalPriority[task]
     })
     this.data.nestNeeds = needs
   }
@@ -148,7 +149,7 @@ export default class Ant {
   }
 
   getSimulatedValue(task) {
-    return (this.data.beheviour.rankTasks[task] += (this.data.nestNeeds[task].actual - this.data.nestNeeds[task].need) * (this.data.beheviour.geneticalPriority[task]))
+    return (this.data.beheviour.rankTasks[task] += (this.data.nestNeeds[task].need / this.data.nestNeeds[task].actual) * (this.data.beheviour.geneticalPriority[task]))
   }
 
   simulateRankResult(simulatedImplement) {
@@ -200,10 +201,23 @@ export default class Ant {
     return this.data
   }
 
+  goToSleep() {
+    this.data.body.position = new BABYLON.Vector3(0,-((Math.random()*30)+6),0)
+    this.awakeTime = setInterval(() => this.awake(), CHECK_TIME_INTERVAL)
+    this.isSleeping = true
+  }
+
+  awake() {
+    this.data.body.position = new BABYLON.Vector3(0,0,0)
+    clearInterval(this.awakeTime)
+    this.isSleeping = false
+  }
+
   live() {
     this.data.body.position = this.data.nest
     this.performTask()
-    this.performTaskInterval = setInterval(() => this.performTask(), Math.floor(Math.random() * CHECK_TIME_INTERVAL))
+    this.performTaskInterval = setInterval(() => !this.isSleeping ? this.performTask() : null, Math.floor(Math.random() * CHECK_TIME_INTERVAL))
+    this.sleep = setInterval(() =>  !this.isSleeping ? this.goToSleep() : null, (Math.floor(Math.random() * CHECK_TIME_INTERVAL) * 50))
     this.decreseTaskInterval = setInterval(() => this.decreseTasks(), CHECK_TIME_INTERVAL / 1e10)
   }
 
@@ -267,20 +281,21 @@ export default class Ant {
 
   decreseTasks() {
     Object.keys(this.data.beheviour.rankTasks).map((task) => {
-      if (this.data.beheviour.rankTasks[task] > 10) this.data.beheviour.rankTasks[task] -= 10
+      if (this.data.beheviour.rankTasks[task] > 10) this.data.beheviour.rankTasks[task] -= 1
     })
   }
 
   setInfluence(encountredAnt) {
     if (TASKS[this.data.type].indexOf(encountredAnt.data.beheviour.actualTask.type) === -1) return
     if (!this.data.beheviour.rankTasks[encountredAnt.data.beheviour.actualTask.type])
-      this.data.beheviour.rankTasks[encountredAnt.data.beheviour.actualTask.type] = encountredAnt.data.beheviour.actualTask.interactionPercentage 
+      this.data.beheviour.rankTasks[encountredAnt.data.beheviour.actualTask.type] = encountredAnt.data.beheviour.actualTask.interactionPercentage * ANT_INFLUENCE_FACTOR
     if (this.data.beheviour.rankTasks[encountredAnt.data.beheviour.actualTask.type] < 99)
-      this.data.beheviour.rankTasks[encountredAnt.data.beheviour.actualTask.type] += encountredAnt.data.beheviour.actualTask.interactionPercentage 
+      this.data.beheviour.rankTasks[encountredAnt.data.beheviour.actualTask.type] += encountredAnt.data.beheviour.actualTask.interactionPercentage * ANT_INFLUENCE_FACTOR
   }
 
   dispose() {
     clearInterval(this.performTaskInterval)
+    clearInterval(this.sleep)
     clearInterval(this.decreseTaskInterval)
     this.data.disposeCallback()
     return

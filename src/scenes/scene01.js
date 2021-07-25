@@ -79,7 +79,7 @@ const antBorn = (first, camera, scene) => {
         break
       case 'Collect':
         NestNeeds.Store.need += mainGeneratedNeedValue
-        NestNeeds.Protection.need += restGeneratedNeedValue/6
+        NestNeeds.Expansion.need += restGeneratedNeedValue/6
         NestNeeds.Cleaning.need += restGeneratedNeedValue/6
         NestNeeds.Exploration.need += restGeneratedNeedValue/3
         break
@@ -190,8 +190,10 @@ export const Create = (engine) => {
   scene.registerBeforeRender(() => {
     Object.keys(needsObj).forEach(needKey => {
       let {actual, need } = NestNeeds[needKey]
-      let scale = need/actual > 10 ? 10 : need/actual < 0.5 ? 0.5: need/actual
-      needsObj[needKey].scaling = new BABYLON.Vector3(1,scale,1)
+      let isNegative = actual > need
+      let scale = need/actual 
+      // let scale = need/actual > 10 ? 10 : need/actual < 0.5 ? 0.5: need/actual
+      needsObj[needKey].scaling = new BABYLON.Vector3(1,isNegative ? -scale : scale,1)
 
     })
   })
