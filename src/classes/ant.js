@@ -6,9 +6,9 @@ import { createSphere } from '../commons/meshCreator'
 const ANT_INFLUENCE_FACTOR = 0.00005
 const TASKS = {
   P: ['Protection', 'Store', 'Cleaning', 'Expansion', 'Exploration', 'Collect'],
-  W: ['Collect', 'Store', 'Cleaning', 'Expansion', 'Exploration', 'Collect'],
+  W: ['Collect', 'Store', 'Cleaning', 'Expansion', 'Exploration', 'Protection'],
 }
-export const CHECK_TIME_INTERVAL = 2e3
+export const CHECK_TIME_INTERVAL = 4e3
 export const TASK_POSITIONS = {
   Store: new BABYLON.Vector3(-100, 0, 100),
   Exploration: new BABYLON.Vector3(-75, 75, 75),
@@ -18,16 +18,15 @@ export const TASK_POSITIONS = {
   Cleaning: new BABYLON.Vector3(75, 75, -75),
 }
 export const TASK_PRIORITY = {
-  Protection: 0.25,
-  Exploration: 0.25,
-  Collect: 0.25,
-  Store: 0.25,
-  Expansion: 0.25,
-  Cleaning: 0.25,
+  Protection: Math.random(),
+  Exploration: Math.random(),
+  Collect: Math.random(),
+  Store: Math.random(),
+  Expansion: Math.random(),
+  Cleaning: Math.random(),
 }
 
 const getGeneticOrientedTask = (type) => TASKS[type][Math.floor(Math.random() * TASKS[type].length)]
-const getGeneticMainTask = (type) => getGeneticOrientedTask(type)
 const getReproductionTime = () => Math.floor(Math.random() * CHECK_TIME_INTERVAL * 30) + CHECK_TIME_INTERVAL * 30
 
 const getSize = (type) => {
@@ -49,13 +48,20 @@ const antObj = (type) => ({
   reproductionTime: null,
   lifeTime: null,
   beheviour: {
-    geneticMainTask: getGeneticMainTask(type),
     actualTask: {
       type: getGeneticOrientedTask(type),
       interactionPercentage: Math.floor(Math.random() * 1),
       lastInteraction: Date.now(),
     },
     rankTasks: {},
+    geneticalPriority: {
+      Protection: Math.random() * 10,
+      Exploration: Math.random() * 10,
+      Collect: Math.random() * 10,
+      Store: Math.random() * 10,
+      Expansion: Math.random() * 10,
+      Cleaning: Math.random() * 10,
+    },
   },
   body: null,
   babylonElements: null,
@@ -72,7 +78,7 @@ export default class Ant {
     }
     ant.body = createSphere(
       { id: ant.id, name: `${type} - ${ant.id}` },
-      type === 'W' ? 2.5 : 5,
+      type === 'W' ? 1.5 : 3,
       12,
       new BABYLON.Color3(Math.random() * 1, Math.random() * 1, Math.random() * 1),
       camera,
@@ -102,7 +108,7 @@ export default class Ant {
 
   set setNestNeeds(needs) {
     Object.keys(needs).forEach((task) => {
-      if (!this.data.beheviour.rankTasks[task]) this.data.beheviour.rankTasks[task] = (needs[task].need / needs[task].actual) * 10
+      if (!this.data.beheviour.rankTasks[task]) this.data.beheviour.rankTasks[task] = (needs[task].actual - needs[task].need) * this.data.beheviour.geneticalPriority[task]
     })
     this.data.nestNeeds = needs
   }
@@ -142,7 +148,7 @@ export default class Ant {
   }
 
   getSimulatedValue(task) {
-    return (this.data.beheviour.rankTasks[task] += (this.data.nestNeeds[task].need / this.data.nestNeeds[task].actual) * (task === this.data.beheviour.geneticMainTask ? 10 : 5))
+    return (this.data.beheviour.rankTasks[task] += (this.data.nestNeeds[task].actual - this.data.nestNeeds[task].need) * (this.data.beheviour.geneticalPriority[task]))
   }
 
   simulateRankResult(simulatedImplement) {
@@ -186,7 +192,6 @@ export default class Ant {
   }
 
   assignNewTask(preaviousTask, actualTask) {
-    console.log(actualTask)
     let shouldSwitchTask = preaviousTask && this.shouldSwitchTask(preaviousTask, actualTask[0])
     this.data.target = shouldSwitchTask ? TASK_POSITIONS[actualTask[0]] : TASK_POSITIONS[preaviousTask]
     this.data.beheviour.actualTask.type = shouldSwitchTask ? actualTask[0] : preaviousTask
@@ -199,7 +204,7 @@ export default class Ant {
     this.data.body.position = this.data.nest
     this.performTask()
     this.performTaskInterval = setInterval(() => this.performTask(), Math.floor(Math.random() * CHECK_TIME_INTERVAL))
-    this.decreseTaskInterval = setInterval(() => this.decreseTasks(), CHECK_TIME_INTERVAL / 250)
+    this.decreseTaskInterval = setInterval(() => this.decreseTasks(), CHECK_TIME_INTERVAL / 1e10)
   }
 
   performTask() {
@@ -241,7 +246,7 @@ export default class Ant {
       this.data.body,
       'position',
       30,
-      CHECK_TIME_INTERVAL / 100,
+      CHECK_TIME_INTERVAL / 100 / 1.5,
       this.data.body.position,
       this.data.target,
       BABYLON.Animation.ANIMATIONLOOPMODE_CONSTANT
@@ -262,16 +267,16 @@ export default class Ant {
 
   decreseTasks() {
     Object.keys(this.data.beheviour.rankTasks).map((task) => {
-      if (this.data.beheviour.rankTasks[task] > 10) this.data.beheviour.rankTasks[task] -= 5
+      if (this.data.beheviour.rankTasks[task] > 10) this.data.beheviour.rankTasks[task] -= 10
     })
   }
 
   setInfluence(encountredAnt) {
     if (TASKS[this.data.type].indexOf(encountredAnt.data.beheviour.actualTask.type) === -1) return
     if (!this.data.beheviour.rankTasks[encountredAnt.data.beheviour.actualTask.type])
-      this.data.beheviour.rankTasks[encountredAnt.data.beheviour.actualTask.type] = encountredAnt.data.beheviour.actualTask.interactionPercentage * ANT_INFLUENCE_FACTOR
+      this.data.beheviour.rankTasks[encountredAnt.data.beheviour.actualTask.type] = encountredAnt.data.beheviour.actualTask.interactionPercentage 
     if (this.data.beheviour.rankTasks[encountredAnt.data.beheviour.actualTask.type] < 99)
-      this.data.beheviour.rankTasks[encountredAnt.data.beheviour.actualTask.type] += encountredAnt.data.beheviour.actualTask.interactionPercentage * ANT_INFLUENCE_FACTOR
+      this.data.beheviour.rankTasks[encountredAnt.data.beheviour.actualTask.type] += encountredAnt.data.beheviour.actualTask.interactionPercentage 
   }
 
   dispose() {
