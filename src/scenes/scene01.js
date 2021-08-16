@@ -18,37 +18,37 @@ let NestNeeds = {
     actual: 0,
     need: 0,
     min_dedicated_ants: Math.round((start_ants / 100) * TASK_PRIORITY.Protection),
-    dedicated_ants: 0,
+    dedicated_ants: 1,
   },
   Exploration: {
     actual: 0,
     need: 0,
     min_dedicated_ants: Math.round((start_ants / 100) * TASK_PRIORITY.Exploration),
-    dedicated_ants: 0,
+    dedicated_ants: 1,
   },
   Collect: {
     actual: 0,
     need: 0,
     min_dedicated_ants: Math.round((start_ants / 100) * TASK_PRIORITY.Collect),
-    dedicated_ants: 0,
+    dedicated_ants: 1,
   },
   Store: {
     actual: 0,
     need: 0,
     min_dedicated_ants: Math.round((start_ants / 100) * TASK_PRIORITY.Store),
-    dedicated_ants: 0,
+    dedicated_ants: 1,
   },
   Cleaning: {
     actual: 0,
     need: 0,
     min_dedicated_ants: Math.round((start_ants / 100) * TASK_PRIORITY.Cleaning),
-    dedicated_ants: 0,
+    dedicated_ants: 1,
   },
   Expansion: {
     actual: 0,
     need: 0,
     min_dedicated_ants: Math.round((start_ants / 100) * TASK_PRIORITY.Exploration),
-    dedicated_ants: 0,
+    dedicated_ants: 1,
   },
 }
 
@@ -67,9 +67,10 @@ const antBorn = (first, camera, scene) => {
     NestNeeds[preaviousTask].dedicated_ants--
     NestNeeds[task.type].dedicated_ants++
     NestNeeds[preaviousTask].actual += 1
+    NestNeeds.Collect.need += 0.25
     let random = Math.random()
     let mainGeneratedNeedValue = (random < 0.5 ? random : 0.5)
-    let restGeneratedNeedValue = (1 - (mainGeneratedNeedValue < 1 ? mainGeneratedNeedValue : 1)) 
+    let restGeneratedNeedValue = (1.05 - (mainGeneratedNeedValue < 1.05 ? mainGeneratedNeedValue : 1.05)) 
     switch (task.type) {
       case 'Protection':
         NestNeeds.Collect.need += mainGeneratedNeedValue + restGeneratedNeedValue

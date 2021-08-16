@@ -149,7 +149,7 @@ export default class Ant {
   }
 
   getSimulatedValue(task) {
-    return (this.data.beheviour.rankTasks[task] += (this.data.nestNeeds[task].need / this.data.nestNeeds[task].actual) * (this.data.beheviour.geneticalPriority[task]))
+    return (this.data.beheviour.rankTasks[task] += (this.data.nestNeeds[task].need / this.data.nestNeeds[task].actual) * this.data.beheviour.geneticalPriority[task])
   }
 
   simulateRankResult(simulatedImplement) {
@@ -174,7 +174,7 @@ export default class Ant {
         if (this.simulateRankResult(simulatedNeedImplement)) {
           this.data.beheviour.rankTasks[need] += simulatedNeedImplement - this.data.beheviour.rankTasks[need]
         } else {
-          this.data.beheviour.rankTasks[need] = 99
+          this.data.beheviour.rankTasks[need] = 90
         }
       }
     })
@@ -194,21 +194,22 @@ export default class Ant {
 
   assignNewTask(preaviousTask, actualTask) {
     let shouldSwitchTask = preaviousTask && this.shouldSwitchTask(preaviousTask, actualTask[0])
-    this.data.target = shouldSwitchTask ? TASK_POSITIONS[actualTask[0]] : TASK_POSITIONS[preaviousTask]
-    this.data.beheviour.actualTask.type = shouldSwitchTask ? actualTask[0] : preaviousTask
+    let currentTask = actualTask[0] !== preaviousTask ? actualTask[0] : actualTask[1]
+    this.data.target = shouldSwitchTask ? TASK_POSITIONS[currentTask] : TASK_POSITIONS[preaviousTask]
+    this.data.beheviour.actualTask.type = shouldSwitchTask ? currentTask : preaviousTask
     this.data.beheviour.actualTask.interactionPercentage = shouldSwitchTask ? actualTask[1] : this.data.beheviour.actualTask.interactionPercentage
     this.data.beheviour.actualTask.lastInteraction = Date.now()
     return this.data
   }
 
   goToSleep() {
-    this.data.body.position = new BABYLON.Vector3(0,-((Math.random()*30)+6),0)
-    this.awakeTime = setInterval(() => this.awake(), CHECK_TIME_INTERVAL)
+    this.data.body.position = new BABYLON.Vector3(0, -(Math.random() * 30 + 6), 0)
+    this.awakeTime = setInterval(() => this.awake(), CHECK_TIME_INTERVAL / 4)
     this.isSleeping = true
   }
 
   awake() {
-    this.data.body.position = new BABYLON.Vector3(0,0,0)
+    this.data.body.position = new BABYLON.Vector3(0, 0, 0)
     clearInterval(this.awakeTime)
     this.isSleeping = false
   }
@@ -216,9 +217,9 @@ export default class Ant {
   live() {
     this.data.body.position = this.data.nest
     this.performTask()
-    this.performTaskInterval = setInterval(() => !this.isSleeping ? this.performTask() : null, Math.floor(Math.random() * CHECK_TIME_INTERVAL))
-    this.sleep = setInterval(() =>  !this.isSleeping ? this.goToSleep() : null, (Math.floor(Math.random() * CHECK_TIME_INTERVAL) * 50))
-    this.decreseTaskInterval = setInterval(() => this.decreseTasks(), CHECK_TIME_INTERVAL / 1e10)
+    this.performTaskInterval = setInterval(() => (!this.isSleeping ? this.performTask() : null), Math.floor(Math.random() * CHECK_TIME_INTERVAL))
+    this.sleep = setInterval(() => (!this.isSleeping ? this.goToSleep() : null), Math.floor(Math.random() * CHECK_TIME_INTERVAL) * 50)
+    this.decreseTaskInterval = setInterval(() => this.decreseTasks(), CHECK_TIME_INTERVAL / 1e3 > 1 ? CHECK_TIME_INTERVAL / 1e3 : 1)
   }
 
   performTask() {
@@ -289,7 +290,7 @@ export default class Ant {
     if (TASKS[this.data.type].indexOf(encountredAnt.data.beheviour.actualTask.type) === -1) return
     if (!this.data.beheviour.rankTasks[encountredAnt.data.beheviour.actualTask.type])
       this.data.beheviour.rankTasks[encountredAnt.data.beheviour.actualTask.type] = encountredAnt.data.beheviour.actualTask.interactionPercentage * ANT_INFLUENCE_FACTOR
-    if (this.data.beheviour.rankTasks[encountredAnt.data.beheviour.actualTask.type] < 99)
+    if (this.data.beheviour.rankTasks[encountredAnt.data.beheviour.actualTask.type] > 99)
       this.data.beheviour.rankTasks[encountredAnt.data.beheviour.actualTask.type] += encountredAnt.data.beheviour.actualTask.interactionPercentage * ANT_INFLUENCE_FACTOR
   }
 
