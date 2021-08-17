@@ -8,7 +8,7 @@ const TASKS = {
   P: ['Protection', 'Store', 'Cleaning', 'Expansion', 'Exploration'],
   W: ['Collect', 'Store', 'Cleaning', 'Expansion', 'Exploration'],
 }
-export const CHECK_TIME_INTERVAL = 4e3
+export const CHECK_TIME_INTERVAL = 10e3
 export const TASK_POSITIONS = {
   Store: new BABYLON.Vector3(-100, 0, 100),
   Exploration: new BABYLON.Vector3(-75, 75, 75),
@@ -56,12 +56,12 @@ const antObj = (type) => ({
     },
     rankTasks: {},
     geneticalPriority: {
-      Protection: Math.random() * 10,
-      Exploration: Math.random() * 10,
-      Collect: Math.random() * 10,
-      Store: Math.random() * 10,
-      Expansion: Math.random() * 10,
-      Cleaning: Math.random() * 10,
+      Protection: Math.random() * type === 'W' ? 9 : 10,
+      Exploration: Math.random() * type === 'W' ? 9 : 10,
+      Collect: Math.random() * type === 'W' ? 10 : 9,
+      Store: Math.random() * type === 'W' ? 10 : 9,
+      Expansion: Math.random() * type === 'W' ? 9 : 10,
+      Cleaning: Math.random() * type === 'W' ? 10 : 9,
     },
   },
   body: null,
@@ -109,7 +109,7 @@ export default class Ant {
 
   set setNestNeeds(needs) {
     Object.keys(needs).forEach((task) => {
-      if (!this.data.beheviour.rankTasks[task]) this.data.beheviour.rankTasks[task] = (needs[task].need / needs[task].actual) * this.data.beheviour.geneticalPriority[task]
+      if (!this.data.beheviour.rankTasks[task]) this.data.beheviour.rankTasks[task] = needs[task].urgency * this.data.beheviour.geneticalPriority[task]
     })
     this.data.nestNeeds = needs
   }
@@ -149,7 +149,7 @@ export default class Ant {
   }
 
   getSimulatedValue(task) {
-    return (this.data.beheviour.rankTasks[task] += (this.data.nestNeeds[task].need / this.data.nestNeeds[task].actual) * this.data.beheviour.geneticalPriority[task])
+    return (this.data.beheviour.rankTasks[task] += this.data.nestNeeds[task].urgency * this.data.beheviour.geneticalPriority[task])
   }
 
   simulateRankResult(simulatedImplement) {
@@ -160,10 +160,9 @@ export default class Ant {
     return this.data.nestNeeds[preaviousTask].dedicated_ants >= this.data.nestNeeds[preaviousTask].min_dedicated_ants
   }
 
-  shouldSwitchTask(preaviousTask, actualTask) {
+  shouldSwitchTask(preaviousTask) {
     let isNeeded = this.isOveractingOnActualNeed(preaviousTask)
-    let willAddValue = !this.isOveractingOnActualNeed(actualTask)
-    return isNeeded && willAddValue && this.minimumAntsPerTask(preaviousTask)
+    return isNeeded && this.minimumAntsPerTask(preaviousTask)
   }
 
   rankingNeeds() {
@@ -193,7 +192,7 @@ export default class Ant {
   }
 
   assignNewTask(preaviousTask, actualTask) {
-    let shouldSwitchTask = preaviousTask && this.shouldSwitchTask(preaviousTask, actualTask[0])
+    let shouldSwitchTask = preaviousTask && this.shouldSwitchTask(preaviousTask)
     let currentTask = actualTask[0] !== preaviousTask ? actualTask[0] : actualTask[1]
     this.data.target = shouldSwitchTask ? TASK_POSITIONS[currentTask] : TASK_POSITIONS[preaviousTask]
     this.data.beheviour.actualTask.type = shouldSwitchTask ? currentTask : preaviousTask
@@ -219,7 +218,7 @@ export default class Ant {
     this.performTask()
     this.performTaskInterval = setInterval(() => (!this.isSleeping ? this.performTask() : null), Math.floor(Math.random() * CHECK_TIME_INTERVAL))
     this.sleep = setInterval(() => (!this.isSleeping ? this.goToSleep() : null), Math.floor(Math.random() * CHECK_TIME_INTERVAL) * 50)
-    this.decreseTaskInterval = setInterval(() => this.decreseTasks(), CHECK_TIME_INTERVAL / 1e3 > 1 ? CHECK_TIME_INTERVAL / 1e3 : 1)
+    this.decreseTaskInterval = setInterval(() => this.decreseTasks(), CHECK_TIME_INTERVAL / 1e3 > 0.1 ? CHECK_TIME_INTERVAL / 1e3 : 0.1)
   }
 
   performTask() {

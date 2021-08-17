@@ -4,7 +4,7 @@ import { getNewScene, getNewCamera, getNewLight, createLabel, createSimplePanel 
 import Ant, { TASK_POSITIONS, TASK_PRIORITY } from '../classes/ant'
 
 const canvas = document.getElementById('renderCanvas')
-const MAX_ANTS = 200
+const MAX_ANTS = 250
 const REPRODUCTION_ON = false
 let start_ants = REPRODUCTION_ON ? Math.round(MAX_ANTS / 2.5) : MAX_ANTS
 let ants_arrived_to_the_nest_at_least_once = []
@@ -15,36 +15,42 @@ let ants = []
 
 let NestNeeds = {
   Protection: {
+    urgency: 0,
     actual: 0,
     need: 0,
     min_dedicated_ants: Math.round((start_ants / 100) * TASK_PRIORITY.Protection),
     dedicated_ants: 1,
   },
   Exploration: {
+    urgency: 0,
     actual: 0,
     need: 0,
     min_dedicated_ants: Math.round((start_ants / 100) * TASK_PRIORITY.Exploration),
     dedicated_ants: 1,
   },
   Collect: {
+    urgency: 0,
     actual: 0,
     need: 0,
     min_dedicated_ants: Math.round((start_ants / 100) * TASK_PRIORITY.Collect),
     dedicated_ants: 1,
   },
   Store: {
+    urgency: 0,
     actual: 0,
     need: 0,
     min_dedicated_ants: Math.round((start_ants / 100) * TASK_PRIORITY.Store),
     dedicated_ants: 1,
   },
   Cleaning: {
+    urgency: 0,
     actual: 0,
     need: 0,
     min_dedicated_ants: Math.round((start_ants / 100) * TASK_PRIORITY.Cleaning),
     dedicated_ants: 1,
   },
   Expansion: {
+    urgency: 0,
     actual: 0,
     need: 0,
     min_dedicated_ants: Math.round((start_ants / 100) * TASK_PRIORITY.Exploration),
@@ -69,8 +75,8 @@ const antBorn = (first, camera, scene) => {
     NestNeeds[preaviousTask].actual += 1
     NestNeeds.Collect.need += 0.25
     let random = Math.random()
-    let mainGeneratedNeedValue = (random < 0.5 ? random : 0.5)
-    let restGeneratedNeedValue = (1.05 - (mainGeneratedNeedValue < 1.05 ? mainGeneratedNeedValue : 1.05)) 
+    let mainGeneratedNeedValue = random < 0.5 ? random : 0.5
+    let restGeneratedNeedValue = 1 - (mainGeneratedNeedValue < 1 ? mainGeneratedNeedValue : 1)
     switch (task.type) {
       case 'Protection':
         NestNeeds.Collect.need += mainGeneratedNeedValue + restGeneratedNeedValue
@@ -80,14 +86,14 @@ const antBorn = (first, camera, scene) => {
         break
       case 'Collect':
         NestNeeds.Store.need += mainGeneratedNeedValue
-        NestNeeds.Expansion.need += restGeneratedNeedValue/6
-        NestNeeds.Cleaning.need += restGeneratedNeedValue/6
-        NestNeeds.Exploration.need += restGeneratedNeedValue/3
+        NestNeeds.Expansion.need += restGeneratedNeedValue / 6
+        NestNeeds.Cleaning.need += restGeneratedNeedValue / 6
+        NestNeeds.Exploration.need += restGeneratedNeedValue / 3
         break
       case 'Store':
         NestNeeds.Expansion.need += mainGeneratedNeedValue
-        NestNeeds.Exploration.need += restGeneratedNeedValue/2
-        NestNeeds.Cleaning.need += restGeneratedNeedValue/2
+        NestNeeds.Exploration.need += restGeneratedNeedValue / 2
+        NestNeeds.Cleaning.need += restGeneratedNeedValue / 2
         break
       case 'Expansion':
         NestNeeds.Exploration.need += restGeneratedNeedValue
@@ -101,9 +107,10 @@ const antBorn = (first, camera, scene) => {
       default:
         break
     }
+    NestNeeds[preaviousTask].urgency = NestNeeds[preaviousTask].need / NestNeeds[preaviousTask].actual
     ant.setNestNeeds = NestNeeds
   }
-  
+
   ant.setDisposeCallback = (id) => {
     let filtredAnts = ants.filter((ant) => {
       if (ant.data && ant.data.id === id) ant.data.body.dispose()
@@ -121,8 +128,12 @@ const antBorn = (first, camera, scene) => {
   }
   ant.setReproduction = REPRODUCTION_ON
   if (!first) ant.registerCollider(ants)
-  NestNeeds.Expansion.need += type === 'P' ? 0.5 : 0.25
-  NestNeeds.Exploration.need += type === 'P' ? 0.5 : 0.25
+  NestNeeds.Protection.need += type === 'P' ? 0.05 : 0.025
+  NestNeeds.Exploration.need += type === 'P' ? 0.05 : 0.025
+  NestNeeds.Expansion.need += type === 'P' ? 0.05 : 0.025
+  NestNeeds.Collect.need += 1
+  NestNeeds.Store.need += type === 'P' ? 0.05 : 0.025
+  NestNeeds.Cleaning.need += type === 'P' ? 0.05 : 0.025
   ants.push(ant)
 }
 
@@ -142,9 +153,9 @@ const creatGUI = (test_AdvancedTexture) => {
   textBox.fontSize = '13px'
   textBox.textHorizontalAlignment = GUI.Control.HORIZONTAL_ALIGNMENT_LEFT
   textBox.textVerticalAlignment = GUI.Control.VERTICAL_ALIGNMENT_TOP
-  textBox.paddingTop = '50px'
+  textBox.paddingTop = '10px'
   textBox.paddingLeft = '10px'
-  textBox.height = '750px'
+  textBox.height = '800px'
 
   Panel.addControl(TitleBox)
   Panel.addControl(textBox)
@@ -166,7 +177,7 @@ export const Create = (engine) => {
   camera.setTarget(nestBox)
   Object.keys(TASK_POSITIONS).forEach((task) => {
     let taskBox = BABYLON.Mesh.CreateBox(`${task}-box`, 5, scene)
-    taskBox.setPivotPoint(new BABYLON.Vector3(0, -2.5, 0));
+    taskBox.setPivotPoint(new BABYLON.Vector3(0, -2.5, 0))
     taskBox.position = TASK_POSITIONS[task]
     taskBox.checkCollisions = false
     taskBox.material = new BABYLON.StandardMaterial(`box:${task}`, scene)
@@ -189,13 +200,11 @@ export const Create = (engine) => {
   let textBox = creatGUI(test_AdvancedTexture)
 
   scene.registerBeforeRender(() => {
-    Object.keys(needsObj).forEach(needKey => {
-      let {actual, need } = NestNeeds[needKey]
+    Object.keys(needsObj).forEach((needKey) => {
+      let { actual, need } = NestNeeds[needKey]
       let isNegative = actual > need
-      let scale = need/actual 
-      // let scale = need/actual > 10 ? 10 : need/actual < 0.5 ? 0.5: need/actual
-      needsObj[needKey].scaling = new BABYLON.Vector3(1,isNegative ? -scale : scale,1)
-
+      let scale = actual > 0 ? (need / actual > 25 ? 25 : need / actual < -10 ? -10 : need / actual) : 1
+      needsObj[needKey].scaling = new BABYLON.Vector3(1, isNegative ? -scale : scale, 1)
     })
   })
 
