@@ -44,8 +44,8 @@ export const getNewScene = (engine) => {
 export const getNewCamera = (id, scene, canvas, space_size) => {
   let camera = new BABYLON.ArcRotateCamera(
     id,
-    1,
-    1,
+    1.5,
+    1.55,
     space_size * 10,
     new BABYLON.Vector3.Zero(),
     scene,
@@ -143,8 +143,8 @@ export const createSimpleBtn = (id, text) => {
 export const createSimplePanel = (position, bgColor) => {
   let Panel = new GUI.StackPanel('mainStackPanel')
   Panel.zIndex = 1000
-  Panel.height = '800px'
-  Panel.width = '200px'
+  Panel.height = '850px'
+  Panel.width = '250px'
   Panel.background = bgColor || 'white'
   Panel.fontFamily = 'Roboto'
   Panel.horizontalAlignment = position.horizontalAlignment || GUI.Control.HORIZONTAL_ALIGNMENT_LEFT

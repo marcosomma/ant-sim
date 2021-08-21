@@ -3,19 +3,19 @@ import * as BABYLON from 'babylonjs'
 import { createSphere } from '../commons/meshCreator'
 
 // AntTypes : [ {workers: W}, {protector: P} ]
-const ANT_INFLUENCE_FACTOR = 0.00005
+const ANT_INFLUENCE_FACTOR = Math.random() / 1e6
 const TASKS = {
   P: ['Protection', 'Store', 'Cleaning', 'Expansion', 'Exploration'],
   W: ['Collect', 'Store', 'Cleaning', 'Expansion', 'Exploration'],
 }
 export const CHECK_TIME_INTERVAL = 10e3
 export const TASK_POSITIONS = {
-  Store: new BABYLON.Vector3(-100, 0, 100),
-  Exploration: new BABYLON.Vector3(-75, 75, 75),
-  Collect: new BABYLON.Vector3(100, 0, -100),
-  Protection: new BABYLON.Vector3(75, -75, -75),
-  Expansion: new BABYLON.Vector3(-75, -75, 75),
-  Cleaning: new BABYLON.Vector3(75, 75, -75),
+  Store: new BABYLON.Vector3(-150, 0, 0),
+  Exploration: new BABYLON.Vector3(-100, 100, 0),
+  Collect: new BABYLON.Vector3(150, 0, 0),
+  Protection: new BABYLON.Vector3(100, -100, 0),
+  Expansion: new BABYLON.Vector3(-100, -100, 0),
+  Cleaning: new BABYLON.Vector3(100, 100, 0),
 }
 export const TASK_PRIORITY = {
   Protection: Math.random(),
@@ -28,6 +28,7 @@ export const TASK_PRIORITY = {
 
 const getGeneticOrientedTask = (type) => TASKS[type][Math.floor(Math.random() * TASKS[type].length)]
 const getReproductionTime = () => Math.floor(Math.random() * CHECK_TIME_INTERVAL * 30)
+const getRandomTarget = () => new BABYLON.Vector3(getRandomArbitrary(-155, 155), getRandomArbitrary(-105, 105), 0)
 
 const getSize = (type) => {
   switch (type) {
@@ -55,18 +56,28 @@ const antObj = (type) => ({
       lastInteraction: Date.now(),
     },
     rankTasks: {},
+    discoveredPositions: {
+      Protection: false,
+      Exploration: false,
+      Collect: false,
+      Store: false,
+      Expansion: false,
+      Cleaning: false,
+    },
     geneticalPriority: {
-      Protection: Math.random() * type === 'W' ? 9 : 10,
-      Exploration: Math.random() * type === 'W' ? 9 : 10,
-      Collect: Math.random() * type === 'W' ? 10 : 9,
-      Store: Math.random() * type === 'W' ? 10 : 9,
-      Expansion: Math.random() * type === 'W' ? 9 : 10,
-      Cleaning: Math.random() * type === 'W' ? 10 : 9,
+      Protection: Math.floor(Math.random() * type === 'W' ? 9 : 10),
+      Exploration: Math.floor(Math.random() * type === 'W' ? 9 : 10),
+      Collect: Math.floor(Math.random() * type === 'W' ? 10 : 9),
+      Store: Math.floor(Math.random() * type === 'W' ? 10 : 9),
+      Expansion: Math.floor(Math.random() * type === 'W' ? 9 : 10),
+      Cleaning: Math.floor(Math.random() * type === 'W' ? 10 : 9),
     },
   },
   body: null,
   babylonElements: null,
 })
+
+const getRandomArbitrary = (min, max) => Math.random() * (max - min) + min
 
 export default class Ant {
   constructor(type, camera, scene) {
@@ -89,10 +100,14 @@ export default class Ant {
 
     this.data = ant
     this.reportedCollision = false
-    this.setTarget = TASK_POSITIONS[ant.beheviour.actualTask.type]
+    this.setTarget = getRandomTarget()
     this.setNest = new BABYLON.Vector3(0, 0, 0)
 
     return this
+  }
+
+  between(x, min, max) {
+    return x >= min && x <= max
   }
 
   set setNestCallback(cb) {
@@ -109,7 +124,7 @@ export default class Ant {
 
   set setNestNeeds(needs) {
     Object.keys(needs).forEach((task) => {
-      if (!this.data.beheviour.rankTasks[task]) this.data.beheviour.rankTasks[task] = needs[task].urgency * this.data.beheviour.geneticalPriority[task]
+      if (!this.data.beheviour.rankTasks[task]) this.data.beheviour.rankTasks[task] = this.data.beheviour.geneticalPriority[task] * needs[task].urgency
     })
     this.data.nestNeeds = needs
   }
@@ -137,11 +152,19 @@ export default class Ant {
   }
 
   isArrivedToTarget() {
-    return this.data.body.position.x === this.data.target.x && this.data.body.position.z === this.data.target.z
+    if (
+      this.data.beheviour.actualTask.type &&
+      !this.data.beheviour.discoveredPositions[this.data.beheviour.actualTask.type] &&
+      this.between(TASK_POSITIONS[this.data.beheviour.actualTask.type].x - this.data.target.x, -10, 10) &&
+      this.between(TASK_POSITIONS[this.data.beheviour.actualTask.type].z - this.data.target.z, -10, 10)
+    ) {
+      this.data.beheviour.discoveredPositions[this.data.beheviour.actualTask.type] = true
+    }
+    return this.between(this.data.body.position.x - this.data.target.x, 0, 1) && this.between(this.data.body.position.z - this.data.target.z, 0, 1)
   }
 
   isArrivedToNest() {
-    return this.data.body.position.x === this.data.nest.x && this.data.body.position.z === this.data.nest.z
+    return this.between(this.data.body.position.x - this.data.nest.x, 0, 0.5) && this.between(this.data.body.position.z - this.data.nest.z, 0, 0.5)
   }
 
   isOveractingOnActualNeed(need) {
@@ -149,7 +172,7 @@ export default class Ant {
   }
 
   getSimulatedValue(task) {
-    return (this.data.beheviour.rankTasks[task] += this.data.nestNeeds[task].urgency * this.data.beheviour.geneticalPriority[task])
+    return (this.data.beheviour.rankTasks[task] += this.data.beheviour.geneticalPriority[task]) * this.data.nestNeeds[task].urgency
   }
 
   simulateRankResult(simulatedImplement) {
@@ -194,7 +217,12 @@ export default class Ant {
   assignNewTask(preaviousTask, actualTask) {
     let shouldSwitchTask = preaviousTask && this.shouldSwitchTask(preaviousTask)
     let currentTask = actualTask[0] !== preaviousTask ? actualTask[0] : actualTask[1]
-    this.data.target = shouldSwitchTask ? TASK_POSITIONS[currentTask] : TASK_POSITIONS[preaviousTask]
+    this.setTarget =
+      this.data.beheviour.discoveredPositions[currentTask] 
+        ? shouldSwitchTask
+          ? TASK_POSITIONS[currentTask]
+          : TASK_POSITIONS[preaviousTask]
+        : getRandomTarget()
     this.data.beheviour.actualTask.type = shouldSwitchTask ? currentTask : preaviousTask
     this.data.beheviour.actualTask.interactionPercentage = shouldSwitchTask ? actualTask[1] : this.data.beheviour.actualTask.interactionPercentage
     this.data.beheviour.actualTask.lastInteraction = Date.now()
@@ -260,10 +288,10 @@ export default class Ant {
       this.data.body,
       'position',
       30,
-      CHECK_TIME_INTERVAL / 100 / 1.5,
+      CHECK_TIME_INTERVAL / 1e2,
       this.data.body.position,
       this.data.target,
-      BABYLON.Animation.ANIMATIONLOOPMODE_CONSTANT
+      BABYLON.Animation.ANIMATIONLOOPMODE_RELATIVE
     )
   }
 
@@ -286,6 +314,19 @@ export default class Ant {
   }
 
   setInfluence(encountredAnt) {
+    if (
+      encountredAnt.data.beheviour.discoveredPositions[this.data.beheviour.actualTask.type] && 
+      !this.data.beheviour.discoveredPositions[this.data.beheviour.actualTask.type]
+    ) {
+      this.data.beheviour.discoveredPositions[this.data.beheviour.actualTask.type] = encountredAnt.data.beheviour.discoveredPositions[this.data.beheviour.actualTask.type]
+    }
+    if (
+      this.data.beheviour.discoveredPositions[encountredAnt.data.beheviour.actualTask.type] && 
+      !encountredAnt.data.beheviour.discoveredPositions[encountredAnt.data.beheviour.actualTask.type]
+    ) {
+      encountredAnt.data.beheviour.discoveredPositions[encountredAnt.data.beheviour.actualTask.type] = this.data.beheviour.discoveredPositions[encountredAnt.data.beheviour.actualTask.type]
+    }
+
     if (TASKS[this.data.type].indexOf(encountredAnt.data.beheviour.actualTask.type) === -1) return
     if (!this.data.beheviour.rankTasks[encountredAnt.data.beheviour.actualTask.type])
       this.data.beheviour.rankTasks[encountredAnt.data.beheviour.actualTask.type] = encountredAnt.data.beheviour.actualTask.interactionPercentage * ANT_INFLUENCE_FACTOR
