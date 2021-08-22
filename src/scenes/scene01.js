@@ -131,6 +131,7 @@ const antBorn = (first, camera, scene) => {
       start_ants++
     }
   }
+  ant.totalAntsInNest = MAX_ANTS 
   ant.setReproduction = REPRODUCTION_ON
   if (!first) ant.registerCollider(ants)
   NestNeeds.Protection.need += type === 'P' ? Number(Math.round(0.05 + 'e2') + 'e-2') : Number(Math.round(0.03 + 'e2') + 'e-2')
