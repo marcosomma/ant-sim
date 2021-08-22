@@ -4,7 +4,7 @@ import { getNewScene, getNewCamera, getNewLight, createLabel, createSimplePanel 
 import Ant, { TASK_POSITIONS, TASK_PRIORITY } from '../classes/ant'
 
 const canvas = document.getElementById('renderCanvas')
-const MAX_ANTS = 250
+const MAX_ANTS = 5e2
 const REPRODUCTION_ON = false
 let start_ants = REPRODUCTION_ON ? Math.round(MAX_ANTS / 2.5) : MAX_ANTS
 let ants_arrived_to_the_nest_at_least_once = []
@@ -61,51 +61,50 @@ let NestNeeds = {
 let needsObj = {}
 const UpdateUrgencyes = () => {
   Object.keys(NestNeeds).forEach((needToUpdate) => {
-    NestNeeds[needToUpdate].urgency = Number(Math.round(NestNeeds[needToUpdate].need / NestNeeds[needToUpdate].actual + 'e2') + 'e-2')
+    NestNeeds[needToUpdate].urgency = NestNeeds[needToUpdate].need / NestNeeds[needToUpdate].actual
   })
 }
 const antBorn = (first, camera, scene) => {
   let type = ['P', 'W', 'W', 'W'][Math.floor(Math.random() * 4)]
   let ant = new Ant(type, camera, scene)
 
-  ant.setNestCallback = (id, task, preaviousTask) => {
-    if(!ant.data.beheviour.discoveredPositions[preaviousTask]) return
+  ant.setNestCallback = (id, task, preaviousTask, addToPreviousTask) => {
     if (ants_arrived_to_the_nest_at_least_once.indexOf(id) === -1) {
       ants_arrived_to_the_nest_at_least_once.push(id)
     }
     active_ants = ants_arrived_to_the_nest_at_least_once.length
     NestNeeds[preaviousTask].dedicated_ants--
     NestNeeds[task.type].dedicated_ants++
-    NestNeeds[preaviousTask].actual += 1
-    NestNeeds.Collect.need += Number(Math.round(0.25 + 'e2') + 'e-2')
+    NestNeeds[preaviousTask].actual += addToPreviousTask
+    NestNeeds.Collect.need += 0.25
     let random = Math.random()
     let mainGeneratedNeedValue = random < 0.5 ? random : 0.5
     let restGeneratedNeedValue = 1 - (mainGeneratedNeedValue < 1 ? mainGeneratedNeedValue : 1)
     switch (task.type) {
       case 'Protection':
-        NestNeeds.Collect.need += Number(Math.round(mainGeneratedNeedValue + restGeneratedNeedValue + 'e2') + 'e-2')
+        NestNeeds.Collect.need += mainGeneratedNeedValue + restGeneratedNeedValue
         break
       case 'Exploration':
-        NestNeeds.Protection.need += Number(Math.round(mainGeneratedNeedValue + restGeneratedNeedValue + 'e2') + 'e-2')
+        NestNeeds.Protection.need += mainGeneratedNeedValue + restGeneratedNeedValue
         break
       case 'Collect':
-        NestNeeds.Store.need += Number(Math.round(mainGeneratedNeedValue + 'e2') + 'e-2')
-        NestNeeds.Expansion.need += Number(Math.round(restGeneratedNeedValue / 6 + 'e2') + 'e-2')
-        NestNeeds.Cleaning.need += Number(Math.round(restGeneratedNeedValue / 6 + 'e2') + 'e-2')
-        NestNeeds.Exploration.need += Number(Math.round(restGeneratedNeedValue / 3 + 'e2') + 'e-2')
+        NestNeeds.Store.need += mainGeneratedNeedValue
+        NestNeeds.Expansion.need += restGeneratedNeedValue / 6
+        NestNeeds.Cleaning.need += restGeneratedNeedValue / 6
+        NestNeeds.Exploration.need += restGeneratedNeedValue / 3
         break
       case 'Store':
-        NestNeeds.Expansion.need += Number(Math.round(mainGeneratedNeedValue + 'e2') + 'e-2')
-        NestNeeds.Exploration.need += Number(Math.round(restGeneratedNeedValue / 2 + 'e2') + 'e-2')
-        NestNeeds.Cleaning.need += Number(Math.round(restGeneratedNeedValue / 2 + 'e2') + 'e-2')
+        NestNeeds.Expansion.need += mainGeneratedNeedValue
+        NestNeeds.Exploration.need += restGeneratedNeedValue / 2
+        NestNeeds.Cleaning.need += restGeneratedNeedValue / 2
         break
       case 'Expansion':
-        NestNeeds.Cleaning.need += Number(Math.round(mainGeneratedNeedValue + 'e2') + 'e-2')
-        NestNeeds.Exploration.need += Number(Math.round(restGeneratedNeedValue + 'e2') + 'e-2')
+        NestNeeds.Cleaning.need += mainGeneratedNeedValue
+        NestNeeds.Exploration.need += restGeneratedNeedValue
         break
       case 'Cleaning':
-        NestNeeds.Protection.need += Number(Math.round(mainGeneratedNeedValue + 'e2') + 'e-2')
-        NestNeeds.Exploration.need += Number(Math.round(restGeneratedNeedValue + 'e2') + 'e-2')
+        NestNeeds.Protection.need += mainGeneratedNeedValue
+        NestNeeds.Exploration.need += restGeneratedNeedValue
         break
 
       default:
@@ -133,12 +132,12 @@ const antBorn = (first, camera, scene) => {
   ant.totalAntsInNest = MAX_ANTS 
   ant.setReproduction = REPRODUCTION_ON
   if (!first) ant.registerCollider(ants)
-  NestNeeds.Protection.need += type === 'P' ? Number(Math.round(0.05 + 'e2') + 'e-2') : Number(Math.round(0.03 + 'e2') + 'e-2')
-  NestNeeds.Exploration.need += type === 'P' ? Number(Math.round(0.05 + 'e2') + 'e-2') : Number(Math.round(0.03 + 'e2') + 'e-2')
-  NestNeeds.Expansion.need += type === 'P' ? Number(Math.round(0.05 + 'e2') + 'e-2') : Number(Math.round(0.03 + 'e2') + 'e-2')
-  NestNeeds.Collect.need += Number(Math.round(1.00+ 'e2') + 'e-2')
-  NestNeeds.Store.need += type === 'P' ? Number(Math.round(0.05 + 'e2') + 'e-2') : Number(Math.round(0.03 + 'e2') + 'e-2')
-  NestNeeds.Cleaning.need += type === 'P' ? Number(Math.round(0.05 + 'e2') + 'e-2') : Number(Math.round(0.03 + 'e2') + 'e-2')
+  NestNeeds.Protection.need += type === 'P' ? 0.05 : 0.03
+  NestNeeds.Exploration.need += type === 'P' ? 0.05 : 0.03
+  NestNeeds.Expansion.need += type === 'P' ? 0.05 : 0.03
+  NestNeeds.Collect.need += 1.00
+  NestNeeds.Store.need += type === 'P' ? 0.05 : 0.03
+  NestNeeds.Cleaning.need += type === 'P' ? 0.05 : 0.03
   ants.push(ant)
 }
 
