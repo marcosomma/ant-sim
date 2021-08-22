@@ -8,7 +8,7 @@ const TASKS = {
   P: ['Protection', 'Store', 'Cleaning', 'Expansion', 'Exploration'],
   W: ['Collect', 'Store', 'Cleaning', 'Expansion', 'Exploration'],
 }
-export const CHECK_TIME_INTERVAL = 5e3
+export const CHECK_TIME_INTERVAL = 4e3
 export const TASK_POSITIONS = {
   Store: new BABYLON.Vector3(-150, 0, 0),
   Exploration: new BABYLON.Vector3(-100, 100, 0),
@@ -160,16 +160,16 @@ export default class Ant {
     if (
       this.data.beheviour.actualTask.type &&
       !this.data.beheviour.discoveredPositions[this.data.beheviour.actualTask.type] &&
-      this.between(TASK_POSITIONS[this.data.beheviour.actualTask.type].x - this.data.target.x, -10, 10) &&
-      this.between(TASK_POSITIONS[this.data.beheviour.actualTask.type].z - this.data.target.z, -10, 10)
+      this.between(TASK_POSITIONS[this.data.beheviour.actualTask.type].x - this.data.target.x, -5, 5) &&
+      this.between(TASK_POSITIONS[this.data.beheviour.actualTask.type].z - this.data.target.z, -5, 5)
     ) {
       this.data.beheviour.discoveredPositions[this.data.beheviour.actualTask.type] = true
     }
-    return this.between(this.data.body.position.x - this.data.target.x, 0, 1) && this.between(this.data.body.position.z - this.data.target.z, 0, 1)
+    return this.between(this.data.body.position.x - this.data.target.x, -0.5, 0.5) && this.between(this.data.body.position.z - this.data.target.z, -0.5, 0.5)
   }
 
   isArrivedToNest() {
-    return this.between(this.data.body.position.x - this.data.nest.x, 0, 0.5) && this.between(this.data.body.position.z - this.data.nest.z, 0, 0.5)
+    return this.between(this.data.body.position.x - this.data.nest.x, -0.5, 0.5) && this.between(this.data.body.position.z - this.data.nest.z, -0.5, 0.5)
   }
 
   iAmOverreacting(need) {
@@ -193,9 +193,10 @@ export default class Ant {
   }
 
   shouldSwitchTask(preaviousTask, actualTask) {
-    let switchIsUrgent = this.data.nestNeeds[preaviousTask].urgency < this.data.nestNeeds[actualTask].urgency
-    let isNeeded = switchIsUrgent || this.iAmOverreacting(preaviousTask)
-    return !this.nestIsOverreacting(actualTask) && (this.nestIsOverreacting(preaviousTask) || (isNeeded && this.minimumAntsPerTask(preaviousTask)))
+    let isUrgent = this.data.nestNeeds[preaviousTask].urgency < this.data.nestNeeds[actualTask].urgency
+    let isOverreacting = (this.iAmOverreacting(preaviousTask) || this.nestIsOverreacting(preaviousTask)) && !this.nestIsOverreacting(actualTask)
+    let isMinimumAntsPerTask = this.minimumAntsPerTask(preaviousTask)
+    return (isUrgent || isOverreacting) && isMinimumAntsPerTask
   }
 
   rankingNeeds() {
@@ -315,7 +316,7 @@ export default class Ant {
 
   decreseTasks() {
     Object.keys(this.data.beheviour.rankTasks).map((task) => {
-      if (this.data.beheviour.rankTasks[task] > 2) this.data.beheviour.rankTasks[task] -= 1
+      if (this.data.beheviour.rankTasks[task] > 10) this.data.beheviour.rankTasks[task] -= 1
     })
   }
 

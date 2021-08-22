@@ -4,7 +4,7 @@ import { getNewScene, getNewCamera, getNewLight, createLabel, createSimplePanel 
 import Ant, { TASK_POSITIONS, TASK_PRIORITY } from '../classes/ant'
 
 const canvas = document.getElementById('renderCanvas')
-const MAX_ANTS = 500
+const MAX_ANTS = 250
 const REPRODUCTION_ON = false
 let start_ants = REPRODUCTION_ON ? Math.round(MAX_ANTS / 2.5) : MAX_ANTS
 let ants_arrived_to_the_nest_at_least_once = []
@@ -18,42 +18,42 @@ let NestNeeds = {
     urgency: 0,
     actual: 0,
     need: 0,
-    min_dedicated_ants: Math.round((start_ants / 100) * TASK_PRIORITY.Protection),
+    min_dedicated_ants: 1, // Math.round((start_ants / 100) * TASK_PRIORITY.Protection),
     dedicated_ants: 1,
   },
   Exploration: {
     urgency: 0,
     actual: 0,
     need: 0,
-    min_dedicated_ants: Math.round((start_ants / 100) * TASK_PRIORITY.Exploration),
+    min_dedicated_ants: 1, // Math.round((start_ants / 100) * TASK_PRIORITY.Exploration),
     dedicated_ants: 1,
   },
   Collect: {
     urgency: 0,
     actual: 0,
     need: 0,
-    min_dedicated_ants: Math.round((start_ants / 100) * TASK_PRIORITY.Collect),
+    min_dedicated_ants: 1, // Math.round((start_ants / 100) * TASK_PRIORITY.Collect),
     dedicated_ants: 1,
   },
   Store: {
     urgency: 0,
     actual: 0,
     need: 0,
-    min_dedicated_ants: Math.round((start_ants / 100) * TASK_PRIORITY.Store),
+    min_dedicated_ants: 1, // Math.round((start_ants / 100) * TASK_PRIORITY.Store),
     dedicated_ants: 1,
   },
   Cleaning: {
     urgency: 0,
     actual: 0,
     need: 0,
-    min_dedicated_ants: Math.round((start_ants / 100) * TASK_PRIORITY.Cleaning),
+    min_dedicated_ants: 1, // Math.round((start_ants / 100) * TASK_PRIORITY.Cleaning),
     dedicated_ants: 1,
   },
   Expansion: {
     urgency: 0,
     actual: 0,
     need: 0,
-    min_dedicated_ants: Math.round((start_ants / 100) * TASK_PRIORITY.Exploration),
+    min_dedicated_ants: 1, // Math.round((start_ants / 100) * TASK_PRIORITY.Exploration),
     dedicated_ants: 1,
   },
 }
@@ -74,7 +74,6 @@ const antBorn = (first, camera, scene) => {
       ants_arrived_to_the_nest_at_least_once.push(id)
     }
     active_ants = ants_arrived_to_the_nest_at_least_once.length
-    NestNeeds[task.type].min_dedicated_ants = Math.round((start_ants / 100) * TASK_PRIORITY[task.type])
     NestNeeds[preaviousTask].dedicated_ants--
     NestNeeds[task.type].dedicated_ants++
     NestNeeds[preaviousTask].actual += 1
