@@ -54,7 +54,7 @@ export const getNewCamera = (id, scene, canvas, space_size) => {
   camera.attachControl(canvas, true)
   camera.collisionRadius = new BABYLON.Vector3(1, 1, 1)
   camera.lowerRadiusLimit = 10
-  camera.upperRadiusLimit = 500
+  camera.upperRadiusLimit = 550
   camera.wheelPrecision = 1
 
   return camera
@@ -143,7 +143,7 @@ export const createSimpleBtn = (id, text) => {
 export const createSimplePanel = (position, bgColor) => {
   let Panel = new GUI.StackPanel('mainStackPanel')
   Panel.zIndex = 1000
-  Panel.height = '850px'
+  Panel.height = '100%'
   Panel.width = '250px'
   Panel.background = bgColor || 'white'
   Panel.fontFamily = 'Roboto'
