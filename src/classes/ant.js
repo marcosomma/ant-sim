@@ -1,106 +1,28 @@
-import { v1 } from 'uuid'
 import * as BABYLON from 'babylonjs'
 import { createSphere } from '../commons/meshCreator'
-
-const INCERESE_MAIN_TASK = 0.55
-const NEG_TARGET_MATCH = -0.5
-const POS_TARGET_MATCH = 0.5
-const NEG_DICSOVERED_TARGET_MATCH = -10
-const POS_DICSOVERED_TARGET_MATCH = 10
-const SEARCHING_RADIUS = 50
-const AUTODISCOVERING = true
-const ANT_INFLUENCE_FACTOR = Math.random() / 1e6
-const MIN_CHECK_TIME_INTERVAL = 5e3
-const CHECK_TIME_INTERVAL = Math.random() * (15e3 - MIN_CHECK_TIME_INTERVAL) + MIN_CHECK_TIME_INTERVAL
-const TASKS = {
-  P: ['Protection', 'Store', 'Cleaning', 'Expansion', 'Exploration', 'QueenCare', 'EggLarvePupeaCare'],
-  W: ['Collect', 'Store', 'Cleaning', 'Expansion', 'Exploration', 'QueenCare', 'EggLarvePupeaCare'],
-}
-const getRandomPos = () => Math.random() * (SEARCHING_RADIUS * (Math.PI * 1.35) - 40) + 40
-export const SLEEP_POSITION = new BABYLON.Vector3(-SEARCHING_RADIUS * (Math.PI * 2), SEARCHING_RADIUS * (Math.PI * 1.5), 0)
-export const TASK_POSITIONS = {
-  Store: new BABYLON.Vector3(-getRandomPos(), 0, 0),
-  Exploration: new BABYLON.Vector3(-getRandomPos(), getRandomPos(), 0),
-  Collect: new BABYLON.Vector3(getRandomPos(), 0, 0),
-  Protection: new BABYLON.Vector3(getRandomPos(), -getRandomPos(), 0),
-  Expansion: new BABYLON.Vector3(-getRandomPos(), -getRandomPos(), 0),
-  Cleaning: new BABYLON.Vector3(getRandomPos(), getRandomPos(), 0),
-  QueenCare: new BABYLON.Vector3(0, getRandomPos(), 0),
-  EggLarvePupeaCare: new BABYLON.Vector3(0, -getRandomPos(), 0),
-}
-export const TASK_PRIORITY = {
-  Protection: Math.random(),
-  Exploration: Math.random(),
-  QueenCare: Math.random(),
-  EggLarvePupeaCare: Math.random(),
-  Collect: Math.random(),
-  Store: Math.random(),
-  Expansion: Math.random(),
-  Cleaning: Math.random(),
-}
-
-const getRandomArbitrary = (min, max) => Math.random() * (max - min) + min
-const randomPointInRadius = (positive) => Math.random() * (positive ? SEARCHING_RADIUS : -SEARCHING_RADIUS) * (Math.PI * 2)
-const getGeneticOrientedTask = (type) => TASKS[type][Math.floor(Math.random() * TASKS[type].length)]
-const getReproductionTime = () => Math.floor(Math.random() * CHECK_TIME_INTERVAL * 30)
-const getRandomTarget = () =>
-  new BABYLON.Vector3(getRandomArbitrary(randomPointInRadius(false), randomPointInRadius(true)), getRandomArbitrary(randomPointInRadius(false), randomPointInRadius(true)), 0)
-
-const getSize = (type) => {
-  switch (type) {
-    case 'P':
-      return 'big'
-    default:
-      return 'small'
-  }
-}
-
-const antObj = (type) => ({
-  id: v1(),
-  type,
-  size: getSize(type),
-  bornAt: Date.now(),
-  cloned: false,
-  reproducrionOn: true,
-  sleeping: false,
-  reproductionTime: null,
-  lifeTime: null,
-  totalAntsInNest: 0,
-  behaviour: {
-    actualTask: {
-      type: getGeneticOrientedTask(type),
-      interactionPercentage: Math.floor(Math.random() * 1),
-      lastInteraction: Date.now(),
-    },
-    rankTasks: {},
-    discoveredPositions: {
-      Protection: !AUTODISCOVERING,
-      Exploration: !AUTODISCOVERING,
-      QueenCare: !AUTODISCOVERING,
-      EggLarvePupeaCare: !AUTODISCOVERING,
-      Collect: !AUTODISCOVERING,
-      Store: !AUTODISCOVERING,
-      Expansion: !AUTODISCOVERING,
-      Cleaning: !AUTODISCOVERING,
-    },
-    geneticalPriority: {
-      Protection: Math.random() + 1, //Math.floor(Math.random() * type === 'W' ? 9 : 10),
-      Exploration: Math.random() + 1, //Math.floor(Math.random() * type === 'W' ? 9 : 10),
-      QueenCare: Math.random() + 1, //Math.floor(Math.random() * type === 'W' ? 9 : 10),
-      EggLarvePupeaCare: Math.random() + 1, //Math.floor(Math.random() * type === 'W' ? 9 : 10),
-      Collect: Math.random() + 1, //Math.floor(Math.random() * type === 'W' ? 10 : 9),
-      Store: Math.random() + 1, //Math.floor(Math.random() * type === 'W' ? 10 : 9),
-      Expansion: Math.random() + 1, //Math.floor(Math.random() * type === 'W' ? 9 : 10),
-      Cleaning: Math.random() + 1, //Math.floor(Math.random() * type === 'W' ? 10 : 9),
-    },
-  },
-  body: null,
-  babylonElements: null,
-})
+import {
+  MAX_ANTS,
+  INCERESE_MAIN_TASK,
+  NEG_TARGET_MATCH,
+  POS_TARGET_MATCH,
+  NEG_DICSOVERED_TARGET_MATCH,
+  POS_DICSOVERED_TARGET_MATCH,
+  SEARCHING_RADIUS,
+  AUTODISCOVERING,
+  ANT_INFLUENCE_FACTOR,
+  MIN_CHECK_TIME_INTERVAL,
+  CHECK_TIME_INTERVAL,
+  TASKS,
+  SLEEP_POSITION,
+  TASK_POSITIONS,
+  getReproductionTime,
+  getRandomTarget,
+  getAntObject,
+} from '../commons/contants'
 
 export default class Ant {
   constructor(type, camera, scene) {
-    let ant = new Object(antObj(type))
+    let ant = new Object(getAntObject(type))
     ant.reproductionTime = getReproductionTime()
     ant.lifeTime = Math.floor(Math.random() * ant.reproductionTime) + ant.reproductionTime
     ant.babylonElements = {
@@ -109,7 +31,7 @@ export default class Ant {
     }
     ant.body = createSphere(
       { id: ant.id, name: `${type} - ${ant.id}` },
-      type === 'W' ? 2 : 4,
+      type === 'W' ? MAX_ANTS / 2e2 : MAX_ANTS / 125,
       12,
       new BABYLON.Color3(Math.random() * 1, Math.random() * 1, Math.random() * 1),
       camera,

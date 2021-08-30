@@ -1,5 +1,6 @@
 import * as BABYLON from 'babylonjs'
 import * as GUI from 'babylonjs-gui'
+import { MAX_ANTS } from './contants'
 
 export const TITLE_FONT_SIZE = '32px'
 export const SUB_TITLE_FONT_SIZE = '24px'
@@ -54,7 +55,7 @@ export const getNewCamera = (id, scene, canvas, space_size) => {
   camera.attachControl(canvas, true)
   camera.collisionRadius = new BABYLON.Vector3(1, 1, 1)
   camera.lowerRadiusLimit = 10
-  camera.upperRadiusLimit = 550
+  camera.upperRadiusLimit = MAX_ANTS * 2
   camera.wheelPrecision = 1
 
   return camera

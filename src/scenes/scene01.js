@@ -1,11 +1,15 @@
 import * as BABYLON from 'babylonjs'
 import * as GUI from 'babylonjs-gui'
 import { getNewScene, getNewCamera, getNewLight, createLabel, createSimplePanel } from '../commons/helper'
-import Ant, { TASK_POSITIONS, SLEEP_POSITION } from '../classes/ant'
+import Ant from '../classes/ant'
+import {
+  MAX_ANTS,
+  SLEEP_POSITION,
+  TASK_POSITIONS,
+  REPRODUCTION_ON
+} from '../commons/contants'
 
 const canvas = document.getElementById('renderCanvas')
-const MAX_ANTS = 2e2
-const REPRODUCTION_ON = false
 let start_ants = REPRODUCTION_ON ? Math.round(MAX_ANTS / 2.5) : MAX_ANTS
 let ants_arrived_to_the_nest_at_least_once = []
 let active_ants = ants_arrived_to_the_nest_at_least_once.length
@@ -166,19 +170,18 @@ export const Create = (engine) => {
   getNewLight('mainLight01', scene)
   const test_AdvancedTexture = GUI.AdvancedDynamicTexture.CreateFullscreenUI('ui1', scene)
 
-  let nestBox = BABYLON.Mesh.CreateBox(`nest-box`, 10, scene)
+  let nestBox = BABYLON.Mesh.CreateBox(`nest-box`, MAX_ANTS/50, scene)
   nestBox.position = new BABYLON.Vector3.Zero()
   nestBox.checkCollisions = false
   createLabel(test_AdvancedTexture, nestBox, 'Anthill')
   camera.setTarget(nestBox)
-  let sleepBox = BABYLON.Mesh.CreateBox(`sleep-box`, 10, scene)
+  let sleepBox = BABYLON.Mesh.CreateBox(`sleep-box`, MAX_ANTS/50, scene)
   sleepBox.position = SLEEP_POSITION
   sleepBox.material = new BABYLON.StandardMaterial(`box:sleep`, scene)
   sleepBox.material.diffuseColor = new BABYLON.Color3.Random()
   createLabel(test_AdvancedTexture, sleepBox, 'Sleeping Ants')
   Object.keys(TASK_POSITIONS).forEach((task) => {
-    let taskBox = BABYLON.Mesh.CreateBox(`${task}-box`, 5, scene)
-    // taskBox.setPivotPoint(new BABYLON.Vector3(0, -2.5, 0))
+    let taskBox = BABYLON.Mesh.CreateBox(`${task}-box`, MAX_ANTS/1e2 , scene)
     taskBox.position = TASK_POSITIONS[task]
     taskBox.checkCollisions = false
     taskBox.material = new BABYLON.StandardMaterial(`box:${task}`, scene)
