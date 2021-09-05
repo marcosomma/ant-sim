@@ -2,12 +2,7 @@ import * as BABYLON from 'babylonjs'
 import * as GUI from 'babylonjs-gui'
 import { getNewScene, getNewCamera, getNewLight, createLabel, createSimplePanel } from '../commons/helper'
 import Ant from '../classes/ant'
-import {
-  MAX_ANTS,
-  SLEEP_POSITION,
-  TASK_POSITIONS,
-  REPRODUCTION_ON
-} from '../commons/contants'
+import { MAX_ANTS, SLEEP_POSITION, TASK_POSITIONS, REPRODUCTION_ON } from '../commons/contants'
 
 const canvas = document.getElementById('renderCanvas')
 let start_ants = REPRODUCTION_ON ? Math.round(MAX_ANTS / 2.5) : MAX_ANTS
@@ -25,14 +20,14 @@ let baseNeed = {
 }
 
 let NestNeeds = {
-  Protection:JSON.parse(JSON.stringify(baseNeed)),
-  Exploration:JSON.parse(JSON.stringify(baseNeed)),
-  Collect:JSON.parse(JSON.stringify(baseNeed)),
-  Store:JSON.parse(JSON.stringify(baseNeed)),
-  Cleaning:JSON.parse(JSON.stringify(baseNeed)),
-  Expansion:JSON.parse(JSON.stringify(baseNeed)),
-  QueenCare:JSON.parse(JSON.stringify(baseNeed)),
-  EggLarvePupeaCare:JSON.parse(JSON.stringify(baseNeed)),
+  Protection: JSON.parse(JSON.stringify(baseNeed)),
+  Exploration: JSON.parse(JSON.stringify(baseNeed)),
+  Collect: JSON.parse(JSON.stringify(baseNeed)),
+  Store: JSON.parse(JSON.stringify(baseNeed)),
+  Cleaning: JSON.parse(JSON.stringify(baseNeed)),
+  Expansion: JSON.parse(JSON.stringify(baseNeed)),
+  QueenCare: JSON.parse(JSON.stringify(baseNeed)),
+  EggLarvePupeaCare: JSON.parse(JSON.stringify(baseNeed)),
 }
 
 let needsObj = {}
@@ -41,7 +36,7 @@ const UpdateUrgencyes = () => {
     NestNeeds[needToUpdate].urgency = NestNeeds[needToUpdate].need / NestNeeds[needToUpdate].actual
   })
 }
-const antBorn = (first, camera, scene) => {
+const antBorn = (camera, scene) => {
   let type = ['P', 'W', 'W', 'W'][Math.floor(Math.random() * 4)]
   let ant = new Ant(type, camera, scene)
 
@@ -52,7 +47,7 @@ const antBorn = (first, camera, scene) => {
     NestNeeds[preaviousTask].dedicated_ants--
     NestNeeds[task.type].dedicated_ants++
     NestNeeds[preaviousTask].actual += addToPreviousTask
-    NestNeeds.Collect.need += 0.10
+    NestNeeds.Collect.need += 0.1
     NestNeeds.QueenCare.need += 0.05
     NestNeeds.EggLarvePupeaCare.need += 0.05
 
@@ -63,12 +58,12 @@ const antBorn = (first, camera, scene) => {
 
     switch (task.type) {
       case 'Protection':
-        NestNeeds.Collect.need += mainGeneratedNeedValue 
+        NestNeeds.Collect.need += mainGeneratedNeedValue
         NestNeeds.QueenCare.need += restGeneratedNeedValue / (totalTasks / 4)
         NestNeeds.EggLarvePupeaCare.need += restGeneratedNeedValue / (totalTasks / 4)
         break
       case 'Exploration':
-        NestNeeds.Protection.need += mainGeneratedNeedValue 
+        NestNeeds.Protection.need += mainGeneratedNeedValue
         NestNeeds.QueenCare.need += restGeneratedNeedValue / (totalTasks / 4)
         NestNeeds.EggLarvePupeaCare.need += restGeneratedNeedValue / (totalTasks / 4)
         break
@@ -110,29 +105,28 @@ const antBorn = (first, camera, scene) => {
 
   ant.setDisposeCallback = (id) => {
     let filtredAnts = ants.filter((ant) => {
-      if (ant.data && ant.data.id === id) ant.data.body.dispose()
-      return ant.data && ant.data.id !== id
+      return ant.data.id !== id
     })
-    start_ants--
+    start_ants -= 1
     NestNeeds.Expansion.need--
-    ants = new Array(filtredAnts)
+    ants = filtredAnts
   }
   ant.setReproductionCallback = (id) => {
     if (ants.length < MAX_ANTS) {
-      antBorn(false, camera, scene)
-      start_ants++
+      antBorn(camera, scene)
+      start_ants += 1
     }
   }
   ant.totalAntsInNest = MAX_ANTS
   ant.setReproduction = REPRODUCTION_ON
-  if (!first) ant.registerCollider(ants)
+  ant.registerCollider(ants)
   NestNeeds.Protection.need += type === 'P' ? 0.05 : 0.03
   NestNeeds.Exploration.need += type === 'P' ? 0.05 : 0.03
   NestNeeds.Expansion.need += type === 'P' ? 0.05 : 0.03
-  NestNeeds.Collect.need += 1.0
+  NestNeeds.Collect.need += REPRODUCTION_ON ? 0.1 : 1.0
   NestNeeds.Store.need += type === 'P' ? 0.05 : 0.03
   NestNeeds.Cleaning.need += type === 'P' ? 0.05 : 0.03
-  NestNeeds.QueenCare.need += type === 'P' ? 0.5 : 0.10
+  NestNeeds.QueenCare.need += type === 'P' ? 0.5 : 0.1
   NestNeeds.EggLarvePupeaCare.need += type === 'P' ? 0.5 : 0.25
   ants.push(ant)
 }
@@ -170,28 +164,35 @@ export const Create = (engine) => {
   getNewLight('mainLight01', scene)
   const test_AdvancedTexture = GUI.AdvancedDynamicTexture.CreateFullscreenUI('ui1', scene)
 
-  let nestBox = BABYLON.Mesh.CreateBox(`nest-box`, MAX_ANTS/50, scene)
+  let nestBox = BABYLON.Mesh.CreateBox(`nest-box`, MAX_ANTS / 50, scene)
   nestBox.position = new BABYLON.Vector3.Zero()
   nestBox.checkCollisions = false
+  nestBox.material = new BABYLON.StandardMaterial(`box:nest`, scene)
+  nestBox.material.diffuseColor = new BABYLON.Color3.White()
+  nestBox.material.alpha = 0.5
   createLabel(test_AdvancedTexture, nestBox, 'Anthill')
   camera.setTarget(nestBox)
-  let sleepBox = BABYLON.Mesh.CreateBox(`sleep-box`, MAX_ANTS/50, scene)
+  let sleepBox = BABYLON.Mesh.CreateCylinder(`sleep-box`, 2, 2, 2, 5, 5, scene)
+  sleepBox.setPivotPoint(new BABYLON.Vector3(0, 1, 0))
   sleepBox.position = SLEEP_POSITION
   sleepBox.material = new BABYLON.StandardMaterial(`box:sleep`, scene)
-  sleepBox.material.diffuseColor = new BABYLON.Color3.Random()
-  createLabel(test_AdvancedTexture, sleepBox, 'Sleeping Ants')
+  sleepBox.material.diffuseColor = new BABYLON.Color3.Gray()
+  sleepBox.material.alpha = 0.25
+  sleepBox.scaling = new BABYLON.Vector3(MAX_ANTS / 60, MAX_ANTS / 6 + 12, MAX_ANTS / 60)
+  createLabel(test_AdvancedTexture, sleepBox, 'Sleeping')
   Object.keys(TASK_POSITIONS).forEach((task) => {
-    let taskBox = BABYLON.Mesh.CreateBox(`${task}-box`, MAX_ANTS/1e2 , scene)
+    let taskBox = BABYLON.Mesh.CreateBox(`${task}-box`, MAX_ANTS / 1e2, scene)
     taskBox.position = TASK_POSITIONS[task]
     taskBox.checkCollisions = false
     taskBox.material = new BABYLON.StandardMaterial(`box:${task}`, scene)
     taskBox.material.diffuseColor = new BABYLON.Color3.Random()
+    taskBox.material.alpha = 0.75
     needsObj[task] = taskBox
     createLabel(test_AdvancedTexture, taskBox, task)
   })
 
   for (let i = 0; i < start_ants; i++) {
-    antBorn(true, camera, scene)
+    antBorn(camera, scene)
   }
 
   ants.forEach((ant) => {
@@ -213,9 +214,9 @@ export const Create = (engine) => {
   })
 
   engine.runRenderLoop(() => {
-    if (Math.floor(active_ants / latest_generation_ammount) > 0 && Math.floor(active_ants / latest_generation_ammount) === 2) {
+    if (active_ants === latest_generation_ammount) {
       latest_generation_ammount = latest_generation_ammount * 2
-      generations++
+      generations += 1
     }
     textBox.text = JSON.stringify(
       {

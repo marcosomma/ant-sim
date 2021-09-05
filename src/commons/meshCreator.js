@@ -19,7 +19,7 @@ export const createSphere = (args, diameter, segments, color, camera, scene) => 
           camera.position.y,
           sphere.position.z - 10
         )
-        camera.setTarget(sphere.position)
+        camera.setTarget(sphere)
       }).bind(this, sphere, args)
     )
   )

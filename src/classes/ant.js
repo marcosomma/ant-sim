@@ -22,9 +22,10 @@ import {
 
 export default class Ant {
   constructor(type, camera, scene) {
+    console.log('+++++++ born')
     let ant = new Object(getAntObject(type))
     ant.reproductionTime = getReproductionTime()
-    ant.lifeTime = Math.floor(Math.random() * ant.reproductionTime) + ant.reproductionTime
+    ant.lifeTime = Math.floor(Math.random() * -ant.reproductionTime + ant.reproductionTime) + ant.reproductionTime
     ant.babylonElements = {
       scene,
       camera,
@@ -88,7 +89,7 @@ export default class Ant {
 
   isEndOfLife() {
     const lifeTime = Math.ceil(Math.abs(Date.now() - this.data.bornAt))
-    return lifeTime >= this.data.lifeTime && this.data.reproducrionOn
+    return lifeTime > this.data.lifeTime && this.data.reproducrionOn
   }
 
   isReproductionTime() {
@@ -216,7 +217,7 @@ export default class Ant {
     }
     if (this.isReproductionTime()) {
       this.data.cloned === true
-      return this.data.reproductionCallback(this.data.id)
+      this.data.reproductionCallback(this.data.id)
     }
     if (this.isArrivedToTarget()) {
       this.findNewScope()
@@ -290,9 +291,11 @@ export default class Ant {
   }
 
   dispose() {
+    console.log('------ die')
     clearInterval(this.performTaskInterval)
     clearInterval(this.sleep)
     clearInterval(this.decreseTaskInterval)
+    this.data.body.dispose()
     this.data.disposeCallback()
     return
   }

@@ -38,6 +38,7 @@ export const getNewScene = (engine) => {
   let scene = new BABYLON.Scene(engine)
   scene.collisionsEnabled = true
   scene.exclusiveDoubleMode = false
+  scene.clearColor = BABYLON.Color3.Black();
 
   return scene
 }
@@ -52,11 +53,25 @@ export const getNewCamera = (id, scene, canvas, space_size) => {
     scene,
     true
   )
-  camera.attachControl(canvas, true)
   camera.collisionRadius = new BABYLON.Vector3(1, 1, 1)
   camera.lowerRadiusLimit = 10
-  camera.upperRadiusLimit = MAX_ANTS * 2
+  camera.upperRadiusLimit = MAX_ANTS * 1.8
+
+//The goal distance of camera from target
+camera.radius = 30;
+
+// The goal height of camera above local origin (centre) of target
+camera.heightOffset = 10;
+
+// The goal rotation of camera around local origin (centre) of target in x y plane
+camera.rotationOffset = 0;
   camera.wheelPrecision = 1
+  //Acceleration of camera in moving from current to goal position
+  camera.cameraAcceleration = 0.02
+  
+  //The speed at which acceleration is halted 
+  camera.maxCameraSpeed = 10
+  camera.attachControl(canvas, true)
 
   return camera
 }
