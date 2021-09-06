@@ -12,8 +12,8 @@ let latest_generation_ammount = REPRODUCTION_ON ? start_ants : MAX_ANTS
 let generations = start_ants / latest_generation_ammount
 let ants = []
 let baseNeed = {
-  urgency: 0,
-  actual: 0,
+  urgency: 1,
+  actual: 1,
   need: 0,
   min_dedicated_ants: 1, // Math.round((start_ants / 100) * TASK_PRIORITY.whatever),
   dedicated_ants: 1,
@@ -36,7 +36,7 @@ const UpdateUrgencyes = () => {
     NestNeeds[needToUpdate].urgency = NestNeeds[needToUpdate].need / NestNeeds[needToUpdate].actual
   })
 }
-const antBorn = (camera, scene) => {
+const antBorn = (first, camera, scene) => {
   let type = ['P', 'W', 'W', 'W'][Math.floor(Math.random() * 4)]
   let ant = new Ant(type, camera, scene)
 
@@ -54,7 +54,7 @@ const antBorn = (camera, scene) => {
     let totalTasks = Object.keys(TASK_POSITIONS).length
     let random = Math.random()
     let mainGeneratedNeedValue = random < 0.5 ? random : 0.5
-    let restGeneratedNeedValue = 1 - (mainGeneratedNeedValue < 1 ? mainGeneratedNeedValue : 1)
+    let restGeneratedNeedValue = addToPreviousTask - (mainGeneratedNeedValue < addToPreviousTask ? mainGeneratedNeedValue : addToPreviousTask)
 
     switch (task.type) {
       case 'Protection':
@@ -113,13 +113,13 @@ const antBorn = (camera, scene) => {
   }
   ant.setReproductionCallback = (id) => {
     if (ants.length < MAX_ANTS) {
-      antBorn(camera, scene)
+      antBorn(false, camera, scene)
       start_ants += 1
     }
   }
   ant.totalAntsInNest = MAX_ANTS
   ant.setReproduction = REPRODUCTION_ON
-  ant.registerCollider(ants)
+  if (!first) ant.registerCollider(ants)
   NestNeeds.Protection.need += type === 'P' ? 0.05 : 0.03
   NestNeeds.Exploration.need += type === 'P' ? 0.05 : 0.03
   NestNeeds.Expansion.need += type === 'P' ? 0.05 : 0.03
@@ -192,7 +192,7 @@ export const Create = (engine) => {
   })
 
   for (let i = 0; i < start_ants; i++) {
-    antBorn(camera, scene)
+    antBorn(true, camera, scene)
   }
 
   ants.forEach((ant) => {

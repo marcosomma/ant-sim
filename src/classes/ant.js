@@ -7,7 +7,6 @@ import {
   POS_TARGET_MATCH,
   NEG_DICSOVERED_TARGET_MATCH,
   POS_DICSOVERED_TARGET_MATCH,
-  SEARCHING_RADIUS,
   AUTODISCOVERING,
   ANT_INFLUENCE_FACTOR,
   MIN_CHECK_TIME_INTERVAL,
@@ -18,6 +17,9 @@ import {
   getReproductionTime,
   getRandomTarget,
   getAntObject,
+  getPerformTaskInternal,
+  getDecreseInternal,
+  getSleepingInterval
 } from '../commons/contants'
 
 export default class Ant {
@@ -203,12 +205,9 @@ export default class Ant {
     this.data.body.position = this.data.nest
     this.performTask()
 
-    const decreseIntervalTime = CHECK_TIME_INTERVAL / 1e3 > 0.1 ? CHECK_TIME_INTERVAL / 1e3 : 0.1
-    const sleepIntervalTime = CHECK_TIME_INTERVAL + Math.random() * CHECK_TIME_INTERVAL + CHECK_TIME_INTERVAL * Math.floor(Math.random() * 24)
-    const performTaskIntervalTime = Math.floor(Math.random() * CHECK_TIME_INTERVAL)
-    this.performTaskInterval = setInterval(() => (!this.isSleeping ? this.performTask() : null), performTaskIntervalTime)
-    this.sleep = setInterval(() => (!this.isSleeping && this.isArrivedToNest() ? this.goToSleep() : null), sleepIntervalTime)
-    this.decreseTaskInterval = setInterval(() => this.decreseTasks(), decreseIntervalTime)
+    this.performTaskInterval = setInterval(() => (!this.isSleeping ? this.performTask() : null), getPerformTaskInternal())
+    this.sleep = setInterval(() => (!this.isSleeping && this.isArrivedToNest() ? this.goToSleep() : null), getSleepingInterval())
+    this.decreseTaskInterval = setInterval(() => this.decreseTasks(), getDecreseInternal())
   }
 
   performTask() {
@@ -221,9 +220,9 @@ export default class Ant {
     }
     if (this.isArrivedToTarget()) {
       this.findNewScope()
-    } else {
-      this.moveTo()
     }
+      this.moveTo()
+    
   }
 
   findNewScope() {
@@ -236,7 +235,7 @@ export default class Ant {
       let preaviousTask = this.data.behaviour.actualTask.type
       let sortedRankedTasks = this.getSortedRankTasks([])
       let nextTask = preaviousTask === sortedRankedTasks[0][0] ? sortedRankedTasks[1] : sortedRankedTasks[0]
-      let calculatedIncreseValue = INCERESE_MAIN_TASK * this.data.behaviour.geneticalPriority[preaviousTask]
+      let calculatedIncreseValue = this.data.behaviour.discoveredPositions[preaviousTask] ? INCERESE_MAIN_TASK * this.data.behaviour.geneticalPriority[preaviousTask] : 0
 
       this.assignNewTask(preaviousTask, nextTask)
       this.data.nestCallback(this.data.id, this.data.behaviour.actualTask, preaviousTask, calculatedIncreseValue)

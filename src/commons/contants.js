@@ -1,17 +1,17 @@
 import { v1 } from 'uuid'
 
-export const MAX_ANTS = 1e2
+export const MAX_ANTS = 6e2
 export const INCERESE_MAIN_TASK = 0.55
 export const NEG_TARGET_MATCH = -0.5
 export const POS_TARGET_MATCH = 0.5
-export const NEG_DICSOVERED_TARGET_MATCH = -10
-export const POS_DICSOVERED_TARGET_MATCH = 10
+export const NEG_DICSOVERED_TARGET_MATCH = -20
+export const POS_DICSOVERED_TARGET_MATCH = 20
 export const SEARCHING_RADIUS = MAX_ANTS / 10
 export const AUTODISCOVERING = true
 export const REPRODUCTION_ON = false
 export const ANT_INFLUENCE_FACTOR = Math.random() / 1e6
-export const MIN_CHECK_TIME_INTERVAL = 5e3
-export const CHECK_TIME_INTERVAL = Math.random() * (2e3 - MIN_CHECK_TIME_INTERVAL) + MIN_CHECK_TIME_INTERVAL
+export const MIN_CHECK_TIME_INTERVAL = 100e3
+export const CHECK_TIME_INTERVAL = Math.random() * (20e3 - MIN_CHECK_TIME_INTERVAL) + MIN_CHECK_TIME_INTERVAL
 export const TASKS = {
   P: ['Protection', 'Store', 'Cleaning', 'Expansion', 'Exploration', 'QueenCare', 'EggLarvePupeaCare'],
   W: ['Collect', 'Store', 'Cleaning', 'Expansion', 'Exploration', 'QueenCare', 'EggLarvePupeaCare'],
@@ -39,10 +39,13 @@ export const TASK_PRIORITY = {
   Cleaning: Math.random(),
 }
 
+export const getDecreseInternal = () => CHECK_TIME_INTERVAL / 1e3 > 0.1 ? CHECK_TIME_INTERVAL / 1e3 : 0.1
+export const getPerformTaskInternal = () => Math.floor(Math.random() * CHECK_TIME_INTERVAL)
+export const getSleepingInterval = () => CHECK_TIME_INTERVAL + Math.random() * CHECK_TIME_INTERVAL + CHECK_TIME_INTERVAL * Math.floor(Math.random() * 24)
 export const getRandomArbitrary = (min, max) => Math.random() * (max - min) + min
 export const randomPointInRadius = (positive) => Math.random() * (positive ? SEARCHING_RADIUS : -SEARCHING_RADIUS) * (Math.PI * 2)
 export const getGeneticOrientedTask = (type) => TASKS[type][Math.floor(Math.random() * TASKS[type].length)]
-export const getReproductionTime = () => Math.floor(Math.random() * CHECK_TIME_INTERVAL * 30)
+export const getReproductionTime = () => REPRODUCTION_ON ? Math.floor(Math.random() * CHECK_TIME_INTERVAL * 30) : 0
 export const getRandomTarget = () =>
   new BABYLON.Vector3(getRandomArbitrary(randomPointInRadius(false), randomPointInRadius(true)), getRandomArbitrary(randomPointInRadius(false), randomPointInRadius(true)), getRandomArbitrary(randomPointInRadius(false), randomPointInRadius(true)))
 
