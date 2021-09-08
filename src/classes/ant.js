@@ -19,7 +19,7 @@ import {
   getAntObject,
   getPerformTaskInternal,
   getDecreseInternal,
-  getSleepingInterval
+  getSleepingInterval,
 } from '../commons/contants'
 
 export default class Ant {
@@ -190,27 +190,29 @@ export default class Ant {
   }
 
   goToSleep() {
-    this.data.body.position = new BABYLON.Vector3(SLEEP_POSITION.x, SLEEP_POSITION.y - (Math.random() * 1e2 + 6), 0)
-    this.awakeTime = setInterval(() => this.awake(), CHECK_TIME_INTERVAL / 4)
+    this.data.animation.pause()
     this.isSleeping = true
+    this.data.body.position = new BABYLON.Vector3(SLEEP_POSITION.x, SLEEP_POSITION.y - (Math.random() * 1e2 + 6), 0)
+    this.awakeTime = setInterval(() => this.awake(), CHECK_TIME_INTERVAL / 24e3)
   }
 
   awake() {
     this.data.body.position = new BABYLON.Vector3(0, 0, 0)
-    clearInterval(this.awakeTime)
     this.isSleeping = false
+    this.moveTo()
+    clearInterval(this.awakeTime)
   }
 
   live() {
     this.data.body.position = this.data.nest
-    this.performTask()
+    this.moveTo()
 
-    this.performTaskInterval = setInterval(() => (!this.isSleeping ? this.performTask() : null), getPerformTaskInternal())
-    this.sleep = setInterval(() => (!this.isSleeping && this.isArrivedToNest() ? this.goToSleep() : null), getSleepingInterval())
+    this.checkTaskInterval = setInterval(() => (!this.isSleeping ? this.check() : null), getPerformTaskInternal())
+    this.sleep = setInterval(() => (!this.isSleeping ? this.goToSleep() : null), getSleepingInterval())
     this.decreseTaskInterval = setInterval(() => this.decreseTasks(), getDecreseInternal())
   }
 
-  performTask() {
+  check() {
     if (this.isEndOfLife()) {
       return this.dispose()
     }
@@ -218,17 +220,11 @@ export default class Ant {
       this.data.cloned === true
       this.data.reproductionCallback(this.data.id)
     }
-    if (this.isArrivedToTarget()) {
-      this.findNewScope()
-    }
-      this.moveTo()
-    
   }
 
   findNewScope() {
     if (!this.isArrivedToNest()) {
       this.setTarget = this.data.nest
-      this.moveTo()
       return
     } else {
       if (this.data.nestNeeds) this.rankingNeeds()
@@ -243,7 +239,7 @@ export default class Ant {
   }
 
   moveTo() {
-    BABYLON.Animation.CreateAndStartAnimation(
+    this.data.animation = BABYLON.Animation.CreateAndStartAnimation(
       `${this.data.id}-animation`,
       this.data.body,
       'position',
@@ -251,7 +247,15 @@ export default class Ant {
       Math.floor((Math.random() * (CHECK_TIME_INTERVAL - MIN_CHECK_TIME_INTERVAL) + MIN_CHECK_TIME_INTERVAL) / 60),
       this.data.body.position,
       this.data.target,
-      BABYLON.Animation.ANIMATIONLOOPMODE_RELATIVE
+      BABYLON.Animation.ANIMATIONLOOPMODE_RELATIVE,
+      null,
+      () => {
+        if (this.isSleeping) return
+        if (this.isArrivedToTarget()) {
+          this.findNewScope()
+        }
+        this.moveTo()
+      }
     )
   }
 
@@ -291,7 +295,7 @@ export default class Ant {
 
   dispose() {
     console.log('------ die')
-    clearInterval(this.performTaskInterval)
+    clearInterval(this.checkTaskInterval)
     clearInterval(this.sleep)
     clearInterval(this.decreseTaskInterval)
     this.data.body.dispose()
