@@ -1,6 +1,7 @@
 import { v1 } from 'uuid'
 
-export const MAX_ANTS = 5e2
+export const PHYSICS_VALUE = { mass: .1, restitution: .05}
+export const MAX_ANTS = 3e2
 export const INCERESE_MAIN_TASK = 0.55
 export const NEG_TARGET_MATCH = -0.5
 export const POS_TARGET_MATCH = 0.5
@@ -10,8 +11,8 @@ export const SEARCHING_RADIUS = MAX_ANTS / 10
 export const AUTODISCOVERING = true
 export const REPRODUCTION_ON = false
 export const ANT_INFLUENCE_FACTOR = Math.random() / 1e6
-export const MIN_CHECK_TIME_INTERVAL = 10e3
-export const CHECK_TIME_INTERVAL = Math.random() * (50e3 - MIN_CHECK_TIME_INTERVAL) + MIN_CHECK_TIME_INTERVAL
+export const MIN_CHECK_TIME_INTERVAL = 30e3
+export const CHECK_TIME_INTERVAL = Math.random() * (90e3 - MIN_CHECK_TIME_INTERVAL) + MIN_CHECK_TIME_INTERVAL
 export const TASKS = {
   P: ['Protection', 'Store', 'Cleaning', 'Expansion', 'Exploration', 'QueenCare', 'EggLarvePupeaCare'],
   W: ['Collect', 'Store', 'Cleaning', 'Expansion', 'Exploration', 'QueenCare', 'EggLarvePupeaCare'],

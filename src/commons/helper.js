@@ -39,6 +39,7 @@ export const getNewScene = (engine) => {
   scene.collisionsEnabled = true
   scene.exclusiveDoubleMode = false
   scene.clearColor = BABYLON.Color3.Black();
+  scene.enablePhysics(new BABYLON.Vector3(0, 0, 0), new BABYLON.CannonJSPlugin());
 
   return scene
 }

@@ -1,5 +1,6 @@
 import * as BABYLON from 'babylonjs'
 import { getAnimationSphere } from './helper'
+import { PHYSICS_VALUE } from '../commons/contants'
 
 export const createSphere = (args, diameter, segments, color, camera, scene) => {
   let sphere = BABYLON.Mesh.CreateSphere(args.id, segments, diameter, scene)
@@ -23,5 +24,7 @@ export const createSphere = (args, diameter, segments, color, camera, scene) => 
       }).bind(this, sphere, args)
     )
   )
+
+  sphere.physicsImpostor = new BABYLON.PhysicsImpostor(sphere, BABYLON.PhysicsImpostor.SphereImpostor, PHYSICS_VALUE, scene)
   return sphere
 }

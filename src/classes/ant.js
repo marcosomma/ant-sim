@@ -2,6 +2,7 @@ import * as BABYLON from 'babylonjs'
 import { createSphere } from '../commons/meshCreator'
 import {
   MAX_ANTS,
+  PHYSICS_VALUE,
   INCERESE_MAIN_TASK,
   NEG_TARGET_MATCH,
   POS_TARGET_MATCH,
@@ -24,23 +25,18 @@ import {
 
 export default class Ant {
   constructor(type, camera, scene) {
-    console.log('+++++++ born')
     let ant = new Object(getAntObject(type))
+    let randomColor = new BABYLON.Color3(Math.random() * 1, Math.random() * 1, Math.random() * 1)
     ant.reproductionTime = getReproductionTime()
     ant.lifeTime = Math.floor(Math.random() * -ant.reproductionTime + ant.reproductionTime) + ant.reproductionTime
     ant.babylonElements = {
       scene,
       camera,
     }
-    ant.body = createSphere(
-      { id: ant.id, name: `${type} - ${ant.id}` },
-      type === 'W' ? MAX_ANTS / 2e2 : MAX_ANTS / 125,
-      12,
-      new BABYLON.Color3(Math.random() * 1, Math.random() * 1, Math.random() * 1),
-      camera,
-      scene
-    )
+    ant.body = createSphere({ id: ant.id, name: `${type} - ${ant.id}` }, type === 'W' ? MAX_ANTS / 2e2 : MAX_ANTS / 125, 12, randomColor, camera, scene)
     ant.body.position = new BABYLON.Vector3(0, 0, 0)
+    ant.body.material = new BABYLON.StandardMaterial(`ant:${type} - ${ant.id}`, scene)
+    ant.body.material.diffuseColor = randomColor
 
     this.data = ant
     this.reportedCollision = false
@@ -97,6 +93,10 @@ export default class Ant {
   isReproductionTime() {
     const lifeTime = Math.ceil(Math.abs(Date.now() - this.data.bornAt))
     return lifeTime >= this.data.reproductionTime && this.data.reproducrionOn && !this.data.cloned
+  }
+
+  hadDiscoveredAllTargets() {
+    return Object.keys(this.data.behaviour.discoveredPositions).filter((task) => this.data.behaviour.discoveredPositions[task] === false).length === 0
   }
 
   isTargetGetDiscovered() {
@@ -183,6 +183,9 @@ export default class Ant {
     let shouldSwitchTask = preaviousTask && this.shouldSwitchTask(preaviousTask, currentTask)
     if (!shouldSwitchTask) currentTask = preaviousTask
     this.setTarget = !AUTODISCOVERING || this.data.behaviour.discoveredPositions[currentTask] ? TASK_POSITIONS[currentTask] : getRandomTarget()
+    if(this.hadDiscoveredAllTargets()){
+      this.data.body.material.emissiveColor = new BABYLON.Color3.White()
+    }
     this.data.behaviour.actualTask.type = shouldSwitchTask ? currentTask : preaviousTask
     this.data.behaviour.actualTask.interactionPercentage = shouldSwitchTask ? actualTask[1] : this.data.behaviour.actualTask.interactionPercentage
     this.data.behaviour.actualTask.lastInteraction = Date.now()
@@ -193,12 +196,14 @@ export default class Ant {
     this.data.animation.pause()
     this.isSleeping = true
     this.data.body.position = new BABYLON.Vector3(SLEEP_POSITION.x, SLEEP_POSITION.y - (Math.random() * 1e2 + 6), 0)
+    this.data.body.physicsImpostor.dispose()
     this.awakeTime = setInterval(() => this.awake(), CHECK_TIME_INTERVAL / 24e3)
   }
 
   awake() {
     this.data.body.position = new BABYLON.Vector3(0, 0, 0)
     this.isSleeping = false
+    this.data.body.physicsImpostor = new BABYLON.PhysicsImpostor(this.data.body, BABYLON.PhysicsImpostor.SphereImpostor, PHYSICS_VALUE, this.data.babylonElements.scene)
     this.moveTo()
     clearInterval(this.awakeTime)
   }

@@ -113,7 +113,7 @@ const antBorn = (first, camera, scene) => {
   }
   ant.setReproductionCallback = (id) => {
     if (ants.length < MAX_ANTS) {
-      antBorn(false, camera, scene)
+      antBorn(true, camera, scene)
       start_ants += 1
     }
   }
