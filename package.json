@@ -1,52 +1,38 @@
 {
   "name": "ant-sim",
-  "version": "1.0.0",
-  "license": "MIT",
+  "version": "2.0.0",
   "private": true,
-  "description": "Anthill Simulator ispaired by the book 'ANT ENCOUNTERS, Interaction Networks and Colony behavior' by D.M.Gordon and the Complex Adaptive Systems Theory",
-  "main": "src/index.js",
+  "license": "MIT",
+  "type": "module",
+  "description": "Anthill simulator inspired by D.M. Gordon's 'Ant Encounters: Interaction Networks and Colony Behavior' and Complex Adaptive Systems theory.",
   "author": {
     "name": "Marco Somma",
-    "email": "mak.so1979@gmail.com",
     "url": "https://github.com/marcosomma"
   },
+  "engines": {
+    "node": ">=22",
+    "pnpm": ">=9"
+  },
   "scripts": {
-    "start": "yarn run build && node server.js",
-    "build": "export \"NODE_ENV=production NODE_OPTIONS=--max_old_space_size=8192\" && export \"NODE_ENV=production\" &&./node_modules/webpack/bin/webpack.js -p --progress",
-    "dev": "NODE_ENV=dev webpack-dev-server --colors --host 0.0.0.0 --port 8080 --config webpack.dev.config.js",
-    "prettify": "./node_modules/prettier/bin-prettier.js --write '**/*.js'"
+    "dev": "vite --host 0.0.0.0 --port 8080",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview --host 0.0.0.0 --port 8080",
+    "typecheck": "tsc --noEmit",
+    "format": "prettier --write \"**/*.{ts,tsx,js,json,css,html,md}\"",
+    "sim:headless": "vite build --ssr scripts/headless.ts --outDir .headless --emptyOutDir --logLevel warn && node .headless/headless.js"
   },
   "dependencies": {
-    "babel-register": "^6.26.0",
-    "babylonjs": "^4.1.0",
-    "babylonjs-gui": "^4.1.0",
-    "babylonjs-loaders": "^4.1.0",
-    "babylonjs-materials": "^4.2.0",
-    "cannon": "^0.6.2",
-    "copy-webpack-plugin": "^6.0.3",
-    "cors": "^2.8.5",
-    "css-loader": "^5.0.1",
-    "express": "^4.17.1",
-    "html-webpack-plugin": "^4.5.1",
-    "mtl-loader": "^0.2.0",
-    "npx": "^10.2.2",
-    "prettier": "^2.2.1",
-    "uuid": "^8.3.2",
-    "webpack": "^4.43.0",
-    "webpack-cli": "^3.3.12",
-    "webpack-obj-loader": "^1.0.4"
+    "@babylonjs/core": "^8.6.1",
+    "@babylonjs/gui": "^8.6.1",
+    "@babylonjs/loaders": "^8.6.1",
+    "@babylonjs/materials": "^8.6.1",
+    "uuid": "^11.0.3"
   },
   "devDependencies": {
-    "@babel/core": "^7.10.5",
-    "babel-loader": "^8.1.0",
-    "babel-preset-env": "^1.7.0",
-    "chai": "^4.2.0",
-    "file-loader": "^6.2.0",
-    "mocha": "^8.0.1",
-    "mocha-webpack": "^1.1.0",
-    "source-map-loader": "^1.1.0",
-    "ttf-loader": "^1.0.2",
-    "webpack-dev-server": "^3.11.0",
-    "webpack-node-externals": "^2.5.0"
-  }
+    "@types/node": "^22.10.2",
+    "prettier": "^3.4.2",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.5"
+  },
+  "packageManager": "pnpm@9.15.0"
 }

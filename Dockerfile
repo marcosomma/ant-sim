@@ -1,24 +1,25 @@
+# syntax=docker/dockerfile:1.7
+
 ##### BUILD #####
-## Build the react application
-FROM node:alpine
+FROM node:22-alpine AS builder
+
+ENV PNPM_HOME=/pnpm
+ENV PATH="$PNPM_HOME:$PATH"
+RUN corepack enable
 
 WORKDIR /app
 
-COPY package.json .
-RUN yarn install 
+COPY package.json pnpm-lock.yaml* ./
+RUN pnpm install --frozen-lockfile || pnpm install
 
 COPY . .
-RUN yarn run build
+RUN pnpm build
 
 ##### SERVE #####
-## Start Nginx and serve the result of the previous build process
-FROM nginx
+FROM nginx:1.27-alpine
 
-RUN rm -rf /etc/nginx/conf.d/*
-COPY nginx/conf.d/* /etc/nginx/conf.d/
+RUN rm -rf /usr/share/nginx/html/*
+COPY --from=builder /app/dist /usr/share/nginx/html
 
-ENV PORT 80
 EXPOSE 80
-RUN rm -rf /usr/share/nginx/html
-COPY --from=0 app/dist /usr/share/nginx/html
-RUN ls -la /usr/share/nginx/html
+CMD ["nginx", "-g", "daemon off;"]
