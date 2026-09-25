@@ -14,7 +14,7 @@ import { AdvancedDynamicTexture, Button, Control, Rectangle, StackPanel, TextBlo
 // const enum access. WordWrap = 1 in the GUI source.
 const TEXT_WRAP_WORDWRAP = 1
 
-import { WORLD_SCALE } from '../constants'
+import { SYMBOL_SCALE, WORLD_SCALE } from '../constants'
 
 export const TITLE_FONT_SIZE = 32
 export const SUB_TITLE_FONT_SIZE = 24
@@ -79,7 +79,7 @@ export const getNewScene = (engine: Engine): Scene => {
 export const getNewCamera = (id: string, scene: Scene, canvas: HTMLCanvasElement, space_size: number): ArcRotateCamera => {
   const camera = new ArcRotateCamera(id, 1.5, 1.55, space_size * 10, Vector3.Zero(), scene, true)
   camera.collisionRadius = new Vector3(1, 1, 1)
-  camera.lowerRadiusLimit = 10
+  camera.lowerRadiusLimit = 10 * SYMBOL_SCALE
   camera.upperRadiusLimit = WORLD_SCALE * 1.8
   camera.radius = 30
   camera.wheelPrecision = 1

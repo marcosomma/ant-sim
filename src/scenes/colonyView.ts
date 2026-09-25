@@ -24,6 +24,7 @@ import {
   FoodSpot,
   NEST_BASE_DIAMETER,
   SITE_RADIUS_MAX,
+  SYMBOL_SCALE,
   WORLD_SCALE,
   SLEEP_CHAMBER_RADIUS,
   SLEEP_POSITION,
@@ -39,13 +40,16 @@ import { TASK_COLOR3, TASK_ORDER } from '../ui/palette'
 //   nest dome (centre) · sleep chamber below it · one tank per task site (fill = supply)
 //   roads from the nest (thickness = ants on that task) · pulses and sparks for events.
 
-const GROUND_SIZE = 520
-const BASE_RADIUS = 340
+// Sizes below are drawn for a world of 300 and multiplied by SYMBOL_SCALE (see constants).
+const S = SYMBOL_SCALE
+const GROUND_SIZE = 520 * S
+const BASE_RADIUS = 340 * S
 const WHEEL_PRECISION_AT_BASE = 1
-const MARKER_HEIGHT = 30 // camera target when flying to a site
-const BASE_DIAMETER = 12
-const ROAD_MIN = 0.25
-const ROAD_MAX = 3.5
+const MARKER_HEIGHT = 30 * S // camera target when flying to a site
+const FOCUS_RADIUS = 90 * S
+const BASE_DIAMETER = 12 * S
+const ROAD_MIN = 0.25 * S
+const ROAD_MAX = 3.5 * S
 const REFRESH_MS = 250
 // Encounter pings (only for the selected task): at most this many per real second, each
 // visible for PING_LIFE_S real seconds, so high sim speeds show a sample, not a blizzard.
@@ -141,11 +145,11 @@ export class ColonyView {
     this.createEffectPools()
 
     camera.setTarget(Vector3.Zero())
-    camera.radius = 340
+    camera.radius = BASE_RADIUS
     camera.alpha = -Math.PI / 3
     camera.beta = 1.1
     window.addEventListener('keydown', (e) => {
-      if (e.key === 'h' || e.key === 'H') this.focus(Vector3.Zero(), 340)
+      if (e.key === 'h' || e.key === 'H') this.focus(Vector3.Zero(), BASE_RADIUS)
     })
 
     scene.onBeforeRenderObservable.add(() => this.animate())
@@ -163,7 +167,7 @@ export class ColonyView {
     grid.mainColor = BLACK.clone()
     grid.lineColor = new Color3(0.3, 0.3, 0.28)
     grid.opacity = 0.25
-    grid.gridRatio = 20
+    grid.gridRatio = 20 * S
     grid.majorUnitFrequency = 5
     grid.minorUnitVisibility = 0.3
     grid.backFaceCulling = false
@@ -209,13 +213,13 @@ export class ColonyView {
     nest.material = material(this.scene, 'nest', new Color3(0.55, 0.42, 0.3), 0.9, 0.25)
     nest.isPickable = false
 
-    const tunnel = bottomPivotCylinder('nest:tunnel', 2.5, this.scene)
+    const tunnel = bottomPivotCylinder('nest:tunnel', 2.5 * S, this.scene)
     span(tunnel, SLEEP_POSITION, Vector3.Zero())
     tunnel.material = material(this.scene, 'nest:tunnel', new Color3(0.55, 0.42, 0.3), 0.25, 0.15)
 
     const chamber = MeshBuilder.CreateSphere(
       'sleep-chamber',
-      { diameter: SLEEP_CHAMBER_RADIUS * 2 + 4, segments: 24 },
+      { diameter: SLEEP_CHAMBER_RADIUS * 2 + 4 * S, segments: 24 },
       this.scene,
     )
     chamber.position.copyFrom(SLEEP_POSITION)
@@ -235,7 +239,7 @@ export class ColonyView {
 
     const base = MeshBuilder.CreateCylinder(
       `site:${task}:base`,
-      { height: 1, diameter: BASE_DIAMETER, tessellation: 32 },
+      { height: 1 * S, diameter: BASE_DIAMETER, tessellation: 32 },
       scene,
     )
     base.parent = root
@@ -252,7 +256,7 @@ export class ColonyView {
     base.actionManager = new ActionManager(scene)
     base.actionManager.registerAction(
       new ExecuteCodeAction(ActionManager.OnPickTrigger, () =>
-        this.focus(pos.add(new Vector3(0, MARKER_HEIGHT / 2, 0)), 90),
+        this.focus(pos.add(new Vector3(0, MARKER_HEIGHT / 2, 0)), FOCUS_RADIUS),
       ),
     )
 
@@ -270,14 +274,14 @@ export class ColonyView {
         mesh.setEnabled(false)
         return { mesh, mat, age: 0, life: 1, from: 1, to: 1, alpha: 1, active: false }
       })
-    this.effects = pool(48, (i) => MeshBuilder.CreateSphere(`fx:spark:${i}`, { diameter: 2.4, segments: 8 }, this.scene))
+    this.effects = pool(48, (i) => MeshBuilder.CreateSphere(`fx:spark:${i}`, { diameter: 2.4 * S, segments: 8 }, this.scene))
     this.rings = pool(24, (i) =>
-      MeshBuilder.CreateTorus(`fx:ring:${i}`, { diameter: 14, thickness: 0.4, tessellation: 32 }, this.scene),
+      MeshBuilder.CreateTorus(`fx:ring:${i}`, { diameter: 14 * S, thickness: 0.4 * S, tessellation: 32 }, this.scene),
     )
     // Small camera-facing rings for encounters. Two ants only "meet" when their bodies
     // overlap, so a line between them would be ~2 units long; a ring at the contact reads.
     this.pings = pool(40, (i) => {
-      const ring = MeshBuilder.CreateTorus(`fx:ping:${i}`, { diameter: 4, thickness: 0.35, tessellation: 24 }, this.scene)
+      const ring = MeshBuilder.CreateTorus(`fx:ping:${i}`, { diameter: 4 * S, thickness: 0.35 * S, tessellation: 24 }, this.scene)
       ring.bakeTransformIntoVertices(Matrix.RotationX(Math.PI / 2))
       ring.billboardMode = Mesh.BILLBOARDMODE_ALL
       return ring
@@ -495,17 +499,17 @@ export class ColonyView {
     const root = new TransformNode(`food:${spot.id}`, scene)
     root.position.copyFrom(spot.position)
 
-    const base = MeshBuilder.CreateCylinder(`food:${spot.id}:base`, { height: 0.6, diameter: BASE_DIAMETER, tessellation: 32 }, scene)
+    const base = MeshBuilder.CreateCylinder(`food:${spot.id}:base`, { height: 0.6 * S, diameter: BASE_DIAMETER, tessellation: 32 }, scene)
     base.parent = root
     base.material = material(scene, `food:${spot.id}:base`, color, 0.55, 0.25)
     const mound = MeshBuilder.CreateSphere(`food:${spot.id}:mound`, { diameter: BASE_DIAMETER * 0.8, slice: 0.5, segments: 20 }, scene)
     mound.parent = root
-    mound.position.y = 0.3
+    mound.position.y = 0.3 * S
     mound.material = material(scene, `food:${spot.id}:mound`, color, 0.95, 0.45)
     mound.isPickable = true
     mound.actionManager = new ActionManager(scene)
     mound.actionManager.registerAction(
-      new ExecuteCodeAction(ActionManager.OnPickTrigger, () => this.focus(spot.position.clone(), 90)),
+      new ExecuteCodeAction(ActionManager.OnPickTrigger, () => this.focus(spot.position.clone(), FOCUS_RADIUS)),
     )
 
     const road = bottomPivotCylinder(`food:${spot.id}:road`, 1, scene)

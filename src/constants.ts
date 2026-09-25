@@ -85,7 +85,14 @@ export interface AntData {
 
 // World size. Used to be MAX_ANTS, which also sized the world, the ants and the camera;
 // now that population is dynamic, the two are separate.
-export const WORLD_SCALE = 3e2
+export const WORLD_SCALE = 2e2
+/**
+ * Every 3D size (sites, markers, nest, roads, effects, camera distances) was drawn for a
+ * world of 300. Multiply by this so symbols keep their proportion to the world when
+ * WORLD_SCALE changes. Ants already scale with WORLD_SCALE directly.
+ */
+export const REFERENCE_WORLD_SCALE = 3e2
+export const SYMBOL_SCALE = WORLD_SCALE / REFERENCE_WORLD_SCALE
 export const INITIAL_ANTS = Math.round(WORLD_SCALE / 2.5)
 // Hard performance ceiling only; the real limit is food (see Colony economy below).
 export const POPULATION_CAP = 500
@@ -129,7 +136,7 @@ export const SLEEP_POSITION = new Vector3(0, -SEARCHING_RADIUS * 1.5, 0)
 // The distance is expressed as a MULTIPLE OF THE FOOTPRINT rather than a world number, so
 // it stays correct if the site geometry is resized: two sites are never closer than
 // SITE_FOOTPRINT × SITE_SEPARATION_RATIO, centre to centre.
-export const SITE_FOOTPRINT = 12 // matches BASE_DIAMETER in the view
+export const SITE_FOOTPRINT = 12 * SYMBOL_SCALE // matches BASE_DIAMETER in the view
 export const SITE_SEPARATION_RATIO = 2.5
 export const MIN_SITE_DISTANCE = SITE_FOOTPRINT * SITE_SEPARATION_RATIO
 const PLACEMENT_ATTEMPTS = 60
@@ -255,7 +262,7 @@ export const getGeneticOrientedTask = (type: AntType): TaskName => {
 export const getNapDuration = (): number => CHECK_TIME_INTERVAL * (0.5 + Math.random())
 
 // Sleep chamber: below the nest, not out in the field.
-export const SLEEP_CHAMBER_RADIUS = 10
+export const SLEEP_CHAMBER_RADIUS = 10 * SYMBOL_SCALE
 
 // ---------------------------------------------------------------------------
 // Colony economy (dynamic population)
@@ -348,8 +355,8 @@ export const foodSpotNear = (pos: Vector3): FoodSpot | null =>
 // Digging widens the nest, and a wider nest means the easy food nearby is already taken,
 // so the next spot is drawn from further out. Both are driven by the same expansion level,
 // a 0..1 saturating measure of how much Expansion work the colony has banked.
-export const NEST_BASE_DIAMETER = 14
-export const NEST_MAX_DIAMETER = 44
+export const NEST_BASE_DIAMETER = 14 * SYMBOL_SCALE
+export const NEST_MAX_DIAMETER = 44 * SYMBOL_SCALE
 export const EXPANSION_HALF_LEVEL = 400 // banked Expansion work at which the nest is half grown
 export const FORAGE_RANGE_AT_FULL_EXPANSION = 2.6 // multiplies the placement radius
 

@@ -1,6 +1,6 @@
 import { Color3, Matrix, Mesh, MeshBuilder, Scene, StandardMaterial, TransformNode } from '@babylonjs/core'
 
-import { TaskName } from '../constants'
+import { SYMBOL_SCALE, TaskName } from '../constants'
 
 // One silhouette per task site, built from primitives. Every marker follows the rule the
 // food mounds set: the SHAPE says what the task is, and one level says how well it is
@@ -183,7 +183,11 @@ export const buildSiteMarker = (
   color: Color3,
 ): SiteMarker => {
   const mat = makeMaterial(scene, `site:${task}:marker`, color)
-  const setLevel = BUILDERS[task](`site:${task}`, scene, parent, mat)
+  // Built at reference size (world 300) and scaled as a whole, so every proportion holds.
+  const holder = new TransformNode(`site:${task}:marker`, scene)
+  holder.parent = parent
+  holder.scaling.setAll(SYMBOL_SCALE)
+  const setLevel = BUILDERS[task](`site:${task}`, scene, holder, mat)
   setLevel(0)
   return { mat, setLevel }
 }
