@@ -1,14 +1,22 @@
-version: '3'
 services:
-  ant-sim-development:
+  ant-sim:
     build:
       context: .
-      dockerfile: Dockerfile.Dev
+      dockerfile: Dockerfile
     ports:
-      - 8080:8080
+      - '8080:80'
+    restart: unless-stopped
+
+  ant-sim-dev:
+    image: node:22-alpine
+    working_dir: /app
+    command: sh -c "corepack enable && pnpm install && pnpm dev"
+    ports:
+      - '8081:8080'
     environment:
       - NODE_ENV=development
     volumes:
-      - /app/node_modules
       - .:/app
-    restart: always
+      - /app/node_modules
+    profiles:
+      - dev
