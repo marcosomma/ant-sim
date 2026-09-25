@@ -36,6 +36,8 @@ const SECTIONS: Section[] = [
       <li><b>Ants</b> take their task's colour. A white glow means the ant knows every site, and dimmed ants are asleep.</li>
       <li><b>Rings</b> from the nest: work delivered (in that task's colour) or a birth (white).
         <b>White spark</b>: two ants met and one taught the other where a site is. <b>Grey spark</b>: a death.</li>
+      <li><b>Small rings</b> (only while a task is pinned): an encounter between one of its ants and another
+        ant, coloured by the other ant's task.</li>
       <li>The <b>food site</b> holds a finite amount. When it is empty it reappears somewhere else and the colony
         has to find it again.</li>
     </ul>`,
@@ -119,7 +121,10 @@ const SECTIONS: Section[] = [
       <li>Speed slider: pause to 16×. <kbd>Space</kbd> pauses, <kbd>[</kbd> <kbd>]</kbd> step slower / faster.
         Everything (timers, lifespans, movement) follows the same clock.</li>
       <li>Drag to orbit, scroll to zoom. Click a site's base to fly to it, and <kbd>H</kbd> returns to the nest.</li>
-      <li>Hover a task in the Anthill panel to single it out in 3D.</li>
+      <li>Hover a task in the Anthill panel to preview it in 3D. <b>Click</b> it to pin it: its ants stay
+        singled out and every encounter they have flashes as a small ring, in the colour of the ant they met.
+        That is the raw signal each ant uses to judge how busy each job is. Click again (or <kbd>Esc</kbd>) to
+        release.</li>
     </ul>`,
   },
   {

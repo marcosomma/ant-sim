@@ -28,6 +28,7 @@ export const Create = (engine: Engine): Scene => {
   colony.events.born = () => view.born()
   colony.events.died = (at) => view.died(at)
   colony.events.knowledgeShared = (at) => view.knowledgeShared(at)
+  colony.events.encountered = (ant, other) => view.encountered(ant, other)
   colony.start()
 
   createHud({ colony, onHighlight: (task) => view.highlight(task) })

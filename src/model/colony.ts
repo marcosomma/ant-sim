@@ -52,6 +52,8 @@ export interface ColonyEvents {
   born?: () => void
   died?: (at: Vector3) => void
   knowledgeShared?: (at: Vector3) => void
+  /** A counted encounter, reported by `ant` (each side of a meeting reports it once). */
+  encountered?: (ant: Ant, other: Ant) => void
   /** A food spot was exhausted and a new one appeared somewhere else. */
   foodSiteMoved?: (at: Vector3, amount: number) => void
 }
@@ -254,6 +256,7 @@ export class Colony {
     ant.setReproductionCallback = () => {}
 
     ant.onKnowledgeShared = (at) => this.events.knowledgeShared?.(at)
+    ant.onEncounter = (other) => this.events.encountered?.(ant, other)
     // Kept at the old constant (300): nestIsOverreacting compares against it.
     ant.setTotalAnts = WORLD_SCALE
     ant.setReproduction = REPRODUCTION_ON

@@ -182,6 +182,16 @@ export const createHud = (src: HudSource): void => {
   tasks.append(tasksHead)
 
   const rows = {} as Record<TaskName, Row>
+  // Click pins a task (its ants stay singled out in 3D and their encounters show);
+  // hover previews a task only while nothing is pinned.
+  let pinned: TaskName | null = null
+  const setPinned = (task: TaskName | null): void => {
+    pinned = task
+    TASK_ORDER.forEach((t) => {
+      rows[t].el.classList.toggle('is-pinned', t === pinned)
+      rows[t].el.setAttribute('aria-pressed', String(t === pinned))
+    })
+  }
   TASK_ORDER.forEach((task) => {
     const el = h('div', 'hud-task')
     el.style.setProperty('--task', TASK_HEX[task])
@@ -205,14 +215,29 @@ export const createHud = (src: HudSource): void => {
 
     el.append(name, workCell, demandTrack)
     if (AUTODISCOVERING) el.append(known)
+    el.setAttribute('role', 'button')
+    el.setAttribute('aria-pressed', 'false')
+    el.title = 'Click to pin: keeps these ants highlighted and shows whom they meet'
     const enter = (): void => {
       showTip(task, el)
-      src.onHighlight?.(task)
+      if (!pinned) src.onHighlight?.(task)
     }
     const leave = (): void => {
       hideTip()
-      src.onHighlight?.(null)
+      src.onHighlight?.(pinned)
     }
+    const togglePin = (): void => {
+      setPinned(pinned === task ? null : task)
+      src.onHighlight?.(pinned ?? task)
+    }
+    el.addEventListener('click', togglePin)
+    el.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') togglePin()
+      if (e.key === 'Escape' && pinned) {
+        setPinned(null)
+        src.onHighlight?.(null)
+      }
+    })
     el.addEventListener('mouseenter', enter)
     el.addEventListener('focus', enter)
     el.addEventListener('mouseleave', leave)
@@ -232,7 +257,7 @@ export const createHud = (src: HudSource): void => {
   const legend = h(
     'p',
     'hud-note',
-    'Workforce: solid = awake, faded = asleep. Right bar: need ÷ actual, log scale (full arm = 8×), centre = balanced. Underline: share of ants that know the site. Hover a task to highlight it in 3D.',
+    'Workforce: solid = awake, faded = asleep. Right bar: need ÷ actual, log scale (full arm = 8×), centre = balanced. Underline: share of ants that know the site. Hover a task to preview it in 3D; click to pin it and see whom its ants meet.',
   )
   tasks.append(legend)
 

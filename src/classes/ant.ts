@@ -64,6 +64,8 @@ export default class Ant {
   collider: Nullable<Observer<Scene>> = null
   // Visual hook: fired when an encounter teaches either ant a task location.
   onKnowledgeShared?: (at: Vector3) => void
+  // Visual hook: fired for every counted (cooldown-deduped) encounter.
+  onEncounter?: (other: Ant) => void
 
   // --- threshold switching (SWITCH_MODEL = 'threshold') ---
   /** Fading tally of distinct encounters, by the task the other ant was doing. */
@@ -295,6 +297,7 @@ export default class Ant {
     if (this.lastMet.size > 256) this.lastMet.clear()
     this.decayTally()
     this.encounterTally[other.data.behaviour.actualTask.type] += 1
+    this.onEncounter?.(other)
   }
 
   /** Share of recent meetings with ants on `task`, as this ant perceives it. */

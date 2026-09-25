@@ -46,6 +46,10 @@ const TANK_OVERFLOW = 1.5 // fill may rise to 150% of the tube so over-supply is
 const ROAD_MIN = 0.25
 const ROAD_MAX = 3.5
 const REFRESH_MS = 250
+// Encounter pings (only for the selected task): at most this many per real second, each
+// visible for PING_LIFE_S real seconds, so high sim speeds show a sample, not a blizzard.
+const PINGS_PER_SECOND = 30
+const PING_LIFE_S = 0.6
 const DEATH = new Color3(0.45, 0.45, 0.43)
 const WHITE = Color3.White()
 const BLACK = Color3.Black()
@@ -103,6 +107,8 @@ export class ColonyView {
   private chamberMat!: StandardMaterial
   private effects: Effect[] = []
   private rings: Effect[] = []
+  private pings: Effect[] = []
+  private pingBudget = PINGS_PER_SECOND
   private highlighted: TaskName | null = null
 
   constructor(
@@ -233,6 +239,14 @@ export class ColonyView {
     this.rings = pool(24, (i) =>
       MeshBuilder.CreateTorus(`fx:ring:${i}`, { diameter: 14, thickness: 0.4, tessellation: 32 }, this.scene),
     )
+    // Small camera-facing rings for encounters. Two ants only "meet" when their bodies
+    // overlap, so a line between them would be ~2 units long; a ring at the contact reads.
+    this.pings = pool(40, (i) => {
+      const ring = MeshBuilder.CreateTorus(`fx:ping:${i}`, { diameter: 4, thickness: 0.35, tessellation: 24 }, this.scene)
+      ring.bakeTransformIntoVertices(Matrix.RotationX(Math.PI / 2))
+      ring.billboardMode = Mesh.BILLBOARDMODE_ALL
+      return ring
+    })
   }
 
   // --- events from the model ------------------------------------------------
@@ -254,6 +268,22 @@ export class ColonyView {
   /** Two ants met and one taught the other where a task site is. */
   knowledgeShared(at: Vector3): void {
     this.spawn(this.effects, at, WHITE, 0.6, 2, 0.6, 0.8)
+  }
+
+  /**
+   * An encounter, as reported by `ant`. Shown only while a task is selected, and only for
+   * that task's ants, coloured by the task of the ant they met: that is what drives their
+   * sense of how crowded each job is.
+   */
+  encountered(ant: Ant, other: Ant): void {
+    const task = this.highlighted
+    if (!task || ant.data.behaviour.actualTask.type !== task) return
+    // Both sides report a meeting; when both are on the selected task, draw it once.
+    if (other.data.behaviour.actualTask.type === task && ant.data.id > other.data.id) return
+    if (this.pingBudget < 1) return
+    this.pingBudget -= 1
+    const at = ant.data.body.position.add(other.data.body.position).scaleInPlace(0.5)
+    this.spawn(this.pings, at, TASK_COLOR3[other.data.behaviour.actualTask.type], 0.6, 1.6, PING_LIFE_S, 0.95)
   }
 
   highlight(task: TaskName | null): void {
@@ -294,6 +324,21 @@ export class ColonyView {
     }
     this.effects.forEach(step)
     this.rings.forEach(step)
+
+    // Pings run on real time (frozen while paused) so they stay readable at 16×.
+    const realDt = getSpeed() > 0 ? this.scene.getEngine().getDeltaTime() / 1000 : 0
+    this.pingBudget = Math.min(PINGS_PER_SECOND, this.pingBudget + realDt * PINGS_PER_SECOND)
+    this.pings.forEach((fx) => {
+      if (!fx.active) return
+      fx.age += realDt
+      const t = Math.min(fx.age / fx.life, 1)
+      fx.mesh.scaling.setAll(fx.from + (fx.to - fx.from) * t)
+      fx.mat.alpha = fx.alpha * (1 - t)
+      if (t >= 1 || !this.highlighted) {
+        fx.active = false
+        fx.mesh.setEnabled(false)
+      }
+    })
 
     this.frameWorld()
 
