@@ -39,7 +39,11 @@ import {
   NEED_ACTUAL_FLOOR,
   NEED_HALF_LIFE_MIN,
   TASK_INFLUENCE,
-  placeSite,
+  FOOD_SPOTS,
+  FoodSpot,
+  INCREASE_MAIN_TASK,
+  foodSpotTarget,
+  placeInOctant,
   rollFoodAmount,
 } from '../constants'
 
@@ -122,8 +126,9 @@ export class Colony {
   consumptionPerMin = 0
 
   /** What is left in the current food spot, and what it held when it appeared. */
-  foodSiteRemaining = rollFoodAmount()
-  foodSiteInitial = this.foodSiteRemaining
+  /** Food spots on the ground (the live registry in constants). */
+  readonly foodSpots = FOOD_SPOTS
+  private nextSpotId = 0
   /** Spots exhausted so far, purely for the HUD. */
   foodSitesDepleted = 0
 
@@ -158,8 +163,19 @@ export class Colony {
   }
 
   /** Share of the current spot still on the ground, 0..1. */
-  get foodSiteFullness(): number {
-    return this.foodSiteInitial > 0 ? Math.max(0, this.foodSiteRemaining / this.foodSiteInitial) : 0
+  /** Spawn radius multiplier: expansion pushes the easy food out, and widens the area. */
+  get foodReach(): number {
+    return 1 + (FORAGE_RANGE_AT_FULL_EXPANSION - 1) * this.expansionLevel
+  }
+
+  /** Spots at least one living ant currently knows (a memory of the spot as it is now). */
+  get foodSpotsKnown(): number {
+    const known = new Set<FoodSpot>()
+    this.ants.forEach((a) => {
+      const m = a.foodMemory
+      if (m && m.epoch === m.spot.epoch) known.add(m.spot)
+    })
+    return known.size
   }
 
   constructor(
@@ -168,6 +184,7 @@ export class Colony {
   ) {}
 
   start(count = INITIAL_ANTS): void {
+    this.ensureFoodSpots()
     for (let i = 0; i < count; i++) this.born()
     this.ants.forEach((ant) => this.startAnt(ant))
     this.food = this.consumption() * INITIAL_FOOD_MINUTES
@@ -216,16 +233,8 @@ export class Colony {
       needs.QueenCare.need += 0.05
       needs.EggLarvePupeaCare.need += 0.05
 
-      // Food: a Collect trip that actually reached its site brings food home,
-      // less per trip the more collectors share the patch. The spot is finite, so a trip
-      // can only carry what is still lying there, and the last trip empties it.
-      if (previousTask === 'Collect' && addToPreviousTask > 0) {
-        const wanted = (FOOD_PER_DELIVERY * addToPreviousTask) / (1 + this.collectors / FORAGING_PATCH)
-        const taken = Math.min(wanted, this.foodSiteRemaining)
-        this.intakeThisTick += taken
-        this.foodSiteRemaining -= taken
-        if (this.foodSiteRemaining <= 0) this.regenerateFoodSite()
-      }
+      // Food: whatever the ant picked up at its spot arrives now (see forage below).
+      if (previousTask === 'Collect') this.intakeThisTick += ant.dropCarried()
 
       // Finishing work creates work elsewhere. Routed on `previousTask`, the task that was
       // actually just done, and scaled by how much of it was done, so the two halves of this
@@ -255,6 +264,16 @@ export class Colony {
     // reproductionOn stays true because the model also gates end-of-life on it.
     ant.setReproductionCallback = () => {}
 
+    // Picking food up at a spot: less per trip the more collectors share the patch, never
+    // more than is lying there, and the trip that empties it sends it elsewhere.
+    ant.forage = (spot) => {
+      const value = INCREASE_MAIN_TASK * ant.data.behaviour.geneticalPriority.Collect
+      const wanted = (FOOD_PER_DELIVERY * value) / (1 + this.collectors / FORAGING_PATCH)
+      const taken = Math.min(wanted, spot.remaining)
+      spot.remaining -= taken
+      if (spot.remaining <= 0) this.respawnFoodSpot(spot)
+      return taken
+    }
     ant.onKnowledgeShared = (at) => this.events.knowledgeShared?.(at)
     ant.onEncounter = (other) => this.events.encountered?.(ant, other)
     // Kept at the old constant (300): nestIsOverreacting compares against it.
@@ -307,36 +326,42 @@ export class Colony {
 
   // --- food spots --------------------------------------------------------------
 
+  /** Everything already on the map that a new spot should keep its distance from. */
+  private occupied(except?: FoodSpot): Vector3[] {
+    return [
+      ...(Object.keys(TASK_POSITIONS) as TaskName[]).filter((t) => t !== 'Collect').map((t) => TASK_POSITIONS[t]),
+      ...FOOD_SPOTS.filter((spot) => spot !== except).map((spot) => spot.position),
+    ]
+  }
+
+  /** A random direction, so spots surround the nest instead of sharing one octant. */
+  private placeFood(except?: FoodSpot): Vector3 {
+    const sign = (): number => (Math.random() < 0.5 ? -1 : 1)
+    return placeInOctant([sign(), sign(), sign()], this.occupied(except), this.foodReach)
+  }
+
+  /** Keep the number of spots in line with the size of the foraging area. */
+  private ensureFoodSpots(): void {
+    const target = foodSpotTarget(this.foodReach)
+    while (FOOD_SPOTS.length < target) {
+      const amount = rollFoodAmount()
+      FOOD_SPOTS.push({ id: this.nextSpotId++, epoch: 0, position: this.placeFood(), remaining: amount, initial: amount })
+    }
+  }
+
   /**
-   * The spot is empty: put a new one somewhere else and make the colony forget it.
-   *
-   * Three things have to happen together, and leaving any one out breaks the illusion:
-   * the position moves, the amount is redrawn, and every ant's memory of where food is
-   * gets cleared so they have to search again. The position is mutated in place because
-   * `TASK_POSITIONS.Collect` is read live by the ants and by the view, so a fresh Vector3
-   * would leave both pointing at the old spot.
-   *
-   * A dug-out colony has already picked the neighbourhood clean, so the replacement is
-   * drawn from further out the more the nest has expanded.
+   * The spot is empty: it reappears elsewhere with a new amount and a new epoch. Nobody is
+   * told. Ants that remember it walk to the old place, find nothing, and forget it; only
+   * this spot's users are affected, the rest of the colony keeps foraging its own spots.
+   * The position is mutated in place (the view follows the object); ants hold copies.
    */
-  private regenerateFoodSite(): void {
-    const others = (Object.keys(TASK_POSITIONS) as TaskName[])
-      .filter((t) => t !== 'Collect')
-      .map((t) => TASK_POSITIONS[t])
-    const reach = 1 + (FORAGE_RANGE_AT_FULL_EXPANSION - 1) * this.expansionLevel
-
-    TASK_POSITIONS.Collect.copyFrom(placeSite('Collect', others, reach))
-
-    this.foodSiteRemaining = rollFoodAmount()
-    this.foodSiteInitial = this.foodSiteRemaining
+  private respawnFoodSpot(spot: FoodSpot): void {
+    spot.position.copyFrom(this.placeFood(spot))
+    spot.initial = rollFoodAmount()
+    spot.remaining = spot.initial
+    spot.epoch++
     this.foodSitesDepleted++
-
-    // Forget it. Collectors fall back to searching, exactly as they did at the start.
-    this.ants.forEach((ant) => {
-      ant.data.behaviour.discoveredPositions.Collect = false
-    })
-
-    this.events.foodSiteMoved?.(TASK_POSITIONS.Collect, this.foodSiteInitial)
+    this.events.foodSiteMoved?.(spot.position, spot.initial)
   }
 
   // --- economy ---------------------------------------------------------------
@@ -357,6 +382,7 @@ export class Colony {
 
   private economyTick(): void {
     const dtMin = ECONOMY_TICK_MS / 60e3
+    this.ensureFoodSpots()
     this.collectors = this.ants.filter((a) => a.data.behaviour.actualTask.type === 'Collect').length
     this.resyncDedicatedAnts()
 

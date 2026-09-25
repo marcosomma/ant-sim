@@ -28,9 +28,11 @@ const SECTIONS: Section[] = [
     title: 'Reading the 3D scene',
     body: `<ul>
       <li><b>Nest</b>: the dome at the centre. The <b>sleep chamber</b> sits below it, joined by a tunnel.</li>
-      <li><b>Task sites</b>: one tank per task, on a base in the task's colour. The fill is supply vs demand
-        (actual ÷ need): a full tube means demand is met, above the tube means over-supplied, and a tank that
-        <i>breathes</i> is badly under-served.</li>
+      <li><b>Task sites</b>: each task has its own shape on a base in its colour: a <b>palisade</b> (protection),
+        a <b>beacon</b> (exploration), the <b>queen's chamber</b>, a cluster of <b>eggs</b> (brood care), a
+        <b>silo</b> (store), <b>soil heaps</b> (expansion) and a stack of <b>swept stones</b> (cleaning).
+        One rule for all of them: the fuller or taller the shape, the better the task is supplied
+        (actual ÷ need). A shape that <i>breathes</i> is badly under-served.</li>
       ${AUTODISCOVERING ? '<li><b>Faded sites</b> are undiscovered: they exist, but no ant knows the way yet, so there is no road.</li>' : ''}
       <li><b>Roads</b> run from the nest to each known site. Thicker and brighter means more ants on that task.</li>
       <li><b>Ants</b> take their task's colour. A white glow means the ant knows every site, and dimmed ants are asleep.</li>
@@ -38,8 +40,11 @@ const SECTIONS: Section[] = [
         <b>White spark</b>: two ants met and one taught the other where a site is. <b>Grey spark</b>: a death.</li>
       <li><b>Small rings</b> (only while a task is pinned): an encounter between one of its ants and another
         ant, coloured by the other ant's task.</li>
-      <li>The <b>food site</b> holds a finite amount. When it is empty it reappears somewhere else and the colony
-        has to find it again.</li>
+      <li>The <b>dashed circle</b> is the colony's foraging territory, where food spots appear. Digging
+        (expansion) widens it: the easy food nearby gets used up, so new food turns up further out. The
+        <b>Nest expansion</b> bar measures the same thing.</li>
+      <li><b>Food</b> lies in several <b>spots</b> (mounds, sized by what is left), each with its own road.
+        More spots appear as digging widens the foraging area. An emptied spot reappears elsewhere.</li>
     </ul>`,
   },
   {
@@ -95,6 +100,9 @@ const SECTIONS: Section[] = [
       }
       <li>When two ants meet, each can teach the other where its own task's site is. Knowledge spreads through
         the colony by encounters, with no map and no leader.</li>
+      <li>Collectors remember <b>one food spot</b> each and pass it on to collectors they meet. When a spot is
+        emptied, nobody is told: its users walk to the old place, find nothing, and have to search again. The
+        rest of the colony keeps foraging its own spots.</li>
     </ul>`,
   },
   {

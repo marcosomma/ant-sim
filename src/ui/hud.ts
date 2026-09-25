@@ -163,9 +163,11 @@ export const createHud = (src: HudSource): void => {
   // --- Food & queen -----------------------------------------------------------
   const economy = h('section', 'hud-section')
   const reserve = meter('Food reserve')
+  const spots = meter('Food spots')
+  const expansion = meter('Nest expansion')
   const laying = meter('Egg laying')
   const layNote = h('p', 'hud-note hud-note--tight')
-  economy.append(h('h2', 'hud-heading', 'Food & queen'), reserve.el, laying.el, layNote)
+  economy.append(h('h2', 'hud-heading', 'Food & queen'), reserve.el, spots.el, expansion.el, laying.el, layNote)
 
   // --- Allocation (stacked) -------------------------------------------------
   const allocation = h('section', 'hud-section')
@@ -370,6 +372,20 @@ export const createHud = (src: HudSource): void => {
     reserve.el.title =
       `${colony.food.toFixed(0)} food · per minute: +${colony.intakePerMin.toFixed(0)} collected, ` +
       `−${colony.consumptionPerMin.toFixed(0)} eaten, −${colony.spoilagePerMin.toFixed(1)} spoiled`
+    // Spots known out of spots on the ground; more appear as the foraging area grows.
+    const spotCount = colony.foodSpots.length
+    const spotsKnown = colony.foodSpotsKnown
+    spots.fill.style.width = pct(spotCount ? spotsKnown / spotCount : 0)
+    spots.value.textContent = `${spotsKnown}/${spotCount}`
+    spots.el.title = `${spotsKnown} of ${spotCount} food spots known by at least one ant · ${colony.foodSitesDepleted} emptied so far`
+
+    // Expansion (0..1, saturating) widens the dome and the foraging territory (dashed circle).
+    expansion.fill.style.width = pct(colony.expansionLevel)
+    expansion.value.textContent = `×${colony.foodReach.toFixed(1)}`
+    expansion.el.title =
+      `Expansion ${pct(colony.expansionLevel)} · foraging territory ×${colony.foodReach.toFixed(2)} ` +
+      `(the dashed circle) · nest ${colony.nestDiameter.toFixed(0)} wide`
+
     // An egg costs food: with an empty store the queen is effectively not laying.
     const layRate = extinct || colony.food < EGG_FOOD_COST ? 0 : colony.layRate
     laying.fill.style.width = pct(layRate / QUEEN_EGGS_PER_MIN_MAX)

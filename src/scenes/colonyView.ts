@@ -21,7 +21,9 @@ import {
   AUTODISCOVERING,
   FOOD_SITE_MAX,
   FOOD_SITE_MIN,
+  FoodSpot,
   NEST_BASE_DIAMETER,
+  SITE_RADIUS_MAX,
   WORLD_SCALE,
   SLEEP_CHAMBER_RADIUS,
   SLEEP_POSITION,
@@ -29,6 +31,7 @@ import {
   TaskName,
 } from '../constants'
 import type { Colony } from '../model/colony'
+import { MAX_LEVEL, SiteMarker, buildSiteMarker } from './siteMarkers'
 import { TASK_COLOR3, TASK_ORDER } from '../ui/palette'
 
 // Visual layer only: reads model state, never writes it. No text in 3D — the HUD is the
@@ -39,10 +42,8 @@ import { TASK_COLOR3, TASK_ORDER } from '../ui/palette'
 const GROUND_SIZE = 520
 const BASE_RADIUS = 340
 const WHEEL_PRECISION_AT_BASE = 1
-const TANK_HEIGHT = 30
-const TANK_DIAMETER = 6
+const MARKER_HEIGHT = 30 // camera target when flying to a site
 const BASE_DIAMETER = 12
-const TANK_OVERFLOW = 1.5 // fill may rise to 150% of the tube so over-supply is visible
 const ROAD_MIN = 0.25
 const ROAD_MAX = 3.5
 const REFRESH_MS = 250
@@ -56,11 +57,23 @@ const BLACK = Color3.Black()
 
 interface Site {
   root: TransformNode
-  fill: Mesh
+  /** Task silhouette; absent for Collect, whose places are the food spots. */
+  marker: SiteMarker | null
+  /** Eased supply level shown by the marker. */
+  level: number
   road: Mesh
   roadMat: StandardMaterial
-  fillMat: StandardMaterial
   known: number
+}
+
+/** One food spot on screen: a mound on a base, and its own road from the nest. */
+interface FoodSpotView {
+  spot: FoodSpot
+  epoch: number
+  root: TransformNode
+  road: Mesh
+  roadMat: StandardMaterial
+  scale: number
 }
 
 interface Effect {
@@ -110,6 +123,8 @@ export class ColonyView {
   private pings: Effect[] = []
   private pingBudget = PINGS_PER_SECOND
   private highlighted: TaskName | null = null
+  private foodViews: FoodSpotView[] = []
+  private perimeter!: TransformNode
 
   constructor(
     private scene: Scene,
@@ -118,7 +133,11 @@ export class ColonyView {
   ) {
     this.createGround()
     this.createNest()
+    this.createPerimeter()
     TASK_ORDER.forEach((task) => this.createSite(task))
+    // Food lives in several spots (createFoodSpotView); the single Collect site is retired.
+    this.sites.Collect.root.setEnabled(false)
+    this.sites.Collect.road.setEnabled(false)
     this.createEffectPools()
 
     camera.setTarget(Vector3.Zero())
@@ -149,6 +168,33 @@ export class ColonyView {
     grid.minorUnitVisibility = 0.3
     grid.backFaceCulling = false
     ground.material = grid
+  }
+
+  /**
+   * The colony's foraging territory: a dashed circle on the ground, where food spots appear.
+   * Expansion widens it (food is pushed out as the nest digs), so it measures expansion.
+   * Built once at radius 1 and scaled, so it can grow smoothly.
+   */
+  private createPerimeter(): void {
+    const node = new TransformNode('perimeter', this.scene)
+    // Babylon lays dashes PER SEGMENT and drops any segment shorter than one dash period,
+    // so the circle needs fewer, longer segments than dashes (64 segments, 2 dashes each).
+    const SEGMENTS = 64
+    const points = Array.from({ length: SEGMENTS + 1 }, (_, i) => {
+      const a = (i / SEGMENTS) * Math.PI * 2
+      return new Vector3(Math.cos(a), 0.2, Math.sin(a))
+    })
+    const ring = MeshBuilder.CreateDashedLines(
+      'perimeter:ring',
+      { points, dashSize: 3, gapSize: 2, dashNb: SEGMENTS * 2 },
+      this.scene,
+    )
+    ring.color = new Color3(0.72, 0.7, 0.62)
+    ring.alpha = 0.55
+    ring.isPickable = false
+    ring.parent = node
+    node.scaling.setAll(SITE_RADIUS_MAX * this.colony.foodReach)
+    this.perimeter = node
   }
 
   private createNest(): void {
@@ -195,19 +241,8 @@ export class ColonyView {
     base.parent = root
     base.material = material(scene, `site:${task}:base`, color, 0.9, 0.3)
 
-    const tube = bottomPivotCylinder(`site:${task}:tube`, TANK_DIAMETER, scene)
-    tube.parent = root
-    tube.position.y = 0.5
-    tube.scaling.y = TANK_HEIGHT
-    const tubeMat = material(scene, `site:${task}:tube`, WHITE, 0.1, 0.05)
-    tubeMat.backFaceCulling = false
-    tube.material = tubeMat
-
-    const fill = bottomPivotCylinder(`site:${task}:fill`, TANK_DIAMETER - 1.2, scene)
-    fill.parent = root
-    fill.position.y = 0.5
-    const fillMat = material(scene, `site:${task}:fill`, color, 0.95, 0.45)
-    fill.material = fillMat
+    // What the task is (silhouette) and how well it is supplied (how complete it is).
+    const marker = task === 'Collect' ? null : buildSiteMarker(task, scene, root, color)
 
     const road = bottomPivotCylinder(`site:${task}:road`, 1, scene)
     span(road, Vector3.Zero(), pos)
@@ -217,11 +252,11 @@ export class ColonyView {
     base.actionManager = new ActionManager(scene)
     base.actionManager.registerAction(
       new ExecuteCodeAction(ActionManager.OnPickTrigger, () =>
-        this.focus(pos.add(new Vector3(0, TANK_HEIGHT / 2, 0)), 90),
+        this.focus(pos.add(new Vector3(0, MARKER_HEIGHT / 2, 0)), 90),
       ),
     )
 
-    this.sites[task] = { root, fill, road, roadMat, fillMat, known: AUTODISCOVERING ? 0 : 1 }
+    this.sites[task] = { root, marker, level: 0, road, roadMat, known: AUTODISCOVERING ? 0 : 1 }
   }
 
   private createEffectPools(): void {
@@ -342,35 +377,41 @@ export class ColonyView {
 
     this.frameWorld()
 
+    // The territory follows expansion, eased like the dome.
+    const territory = SITE_RADIUS_MAX * this.colony.foodReach
+    const r = this.perimeter.scaling.x + (territory - this.perimeter.scaling.x) * 0.05
+    this.perimeter.scaling.set(r, 1, r)
+
     // Digging widens the dome. Eased rather than snapped so growth reads as growth.
     const nestScale = this.colony.nestDiameter / NEST_BASE_DIAMETER
     this.nest.scaling.setAll(this.nest.scaling.x + (nestScale - this.nest.scaling.x) * 0.05)
 
-    // The food spot is as big as what is lying there: a seed stays small, a crumb of bread
+    // Each food spot is as big as what is lying there: a seed stays small, a crumb of bread
     // is unmistakable from across the world, and both visibly shrink as ants carry them off.
+    this.syncFoodSpots()
     const logSpan = Math.log(FOOD_SITE_MAX / FOOD_SITE_MIN)
-    const size = Math.log(Math.max(FOOD_SITE_MIN, this.colony.foodSiteInitial) / FOOD_SITE_MIN) / logSpan
-    const foodScale = (0.55 + 1.45 * size) * (0.35 + 0.65 * this.colony.foodSiteFullness)
-    const collect = this.sites.Collect
-    const foodAt = TASK_POSITIONS.Collect
-    if (!collect.root.position.equals(foodAt)) {
-      // The spot moved. The road was spanned once at creation, so it has to be re-aimed or
-      // it keeps pointing at ground the food has already left.
-      collect.root.position.copyFrom(foodAt)
-      span(collect.road, Vector3.Zero(), foodAt)
-    }
-    collect.root.scaling.setAll(collect.root.scaling.x + (foodScale - collect.root.scaling.x) * 0.12)
+    this.foodViews.forEach((v) => {
+      const { spot } = v
+      const size = Math.log(Math.max(FOOD_SITE_MIN, spot.initial) / FOOD_SITE_MIN) / logSpan
+      const fullness = spot.initial > 0 ? Math.max(0, spot.remaining / spot.initial) : 0
+      const target = (0.55 + 1.45 * size) * (0.35 + 0.65 * fullness)
+      v.scale += (target - v.scale) * 0.12
+      v.root.scaling.setAll(v.scale)
+    })
 
     // Under-served tanks breathe so the eye finds them without reading anything.
     const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 260)
     TASK_ORDER.forEach((task) => {
+      if (task === 'Collect') return
       const site = this.sites[task]
       const { need, actual } = this.colony.needs[task]
-      const supply = need > 0 ? actual / need : TANK_OVERFLOW
+      const supply = need > 0 ? actual / need : MAX_LEVEL
       const starving = supply < 0.25 && site.known > 0
-      site.fillMat.emissiveColor.copyFrom(TASK_COLOR3[task]).scaleInPlace(starving ? 0.3 + 0.5 * pulse : 0.45)
-      const target = Math.max(0.02, Math.min(supply, TANK_OVERFLOW)) * TANK_HEIGHT
-      site.fill.scaling.y += (target - site.fill.scaling.y) * 0.15
+      if (!site.marker) return
+      site.marker.mat.emissiveColor.copyFrom(TASK_COLOR3[task]).scaleInPlace(starving ? 0.3 + 0.5 * pulse : 0.45)
+      const target = Math.max(0, Math.min(supply, MAX_LEVEL))
+      site.level += (target - site.level) * 0.15
+      site.marker.setLevel(site.level)
     })
   }
 
@@ -388,8 +429,9 @@ export class ColonyView {
   private frameWorld(): void {
     let extent = this.colony.nestDiameter
     TASK_ORDER.forEach((task) => {
-      extent = Math.max(extent, TASK_POSITIONS[task].length())
+      if (task !== 'Collect') extent = Math.max(extent, TASK_POSITIONS[task].length())
     })
+    this.colony.foodSpots.forEach((spot) => (extent = Math.max(extent, spot.position.length())))
 
     const needed = extent * 2.2 + this.colony.nestDiameter
     this.camera.upperRadiusLimit = Math.max(WORLD_SCALE * 1.8, needed)
@@ -424,7 +466,10 @@ export class ColonyView {
     // The chamber glows a little brighter the more of the colony is asleep in it.
     this.chamberMat.alpha = 0.06 + 0.25 * Math.sqrt(asleep / total)
 
+    this.refreshFoodSpots(total)
+
     TASK_ORDER.forEach((task) => {
+      if (task === 'Collect') return
       const site = this.sites[task]
       site.known = AUTODISCOVERING ? knownBy[task] / total : 1
       const share = onTask[task] / total
@@ -439,6 +484,78 @@ export class ColonyView {
       site.road.scaling.x = width
       site.road.scaling.z = width
       site.roadMat.alpha = (0.12 + 0.6 * Math.sqrt(share)) * (dim ? 0.15 : 1)
+    })
+  }
+
+  // --- food spots ------------------------------------------------------------
+
+  private createFoodSpotView(spot: FoodSpot): FoodSpotView {
+    const scene = this.scene
+    const color = TASK_COLOR3.Collect
+    const root = new TransformNode(`food:${spot.id}`, scene)
+    root.position.copyFrom(spot.position)
+
+    const base = MeshBuilder.CreateCylinder(`food:${spot.id}:base`, { height: 0.6, diameter: BASE_DIAMETER, tessellation: 32 }, scene)
+    base.parent = root
+    base.material = material(scene, `food:${spot.id}:base`, color, 0.55, 0.25)
+    const mound = MeshBuilder.CreateSphere(`food:${spot.id}:mound`, { diameter: BASE_DIAMETER * 0.8, slice: 0.5, segments: 20 }, scene)
+    mound.parent = root
+    mound.position.y = 0.3
+    mound.material = material(scene, `food:${spot.id}:mound`, color, 0.95, 0.45)
+    mound.isPickable = true
+    mound.actionManager = new ActionManager(scene)
+    mound.actionManager.registerAction(
+      new ExecuteCodeAction(ActionManager.OnPickTrigger, () => this.focus(spot.position.clone(), 90)),
+    )
+
+    const road = bottomPivotCylinder(`food:${spot.id}:road`, 1, scene)
+    span(road, Vector3.Zero(), spot.position)
+    const roadMat = material(scene, `food:${spot.id}:road`, color, 0.2, 0.6)
+    road.material = roadMat
+    return { spot, epoch: spot.epoch, root, road, roadMat, scale: 0.01 }
+  }
+
+  /** New spots appear as the foraging area grows; a respawned spot moves (new epoch). */
+  private syncFoodSpots(): void {
+    this.colony.foodSpots.forEach((spot, i) => {
+      const view = this.foodViews[i]
+      if (!view) {
+        this.foodViews.push(this.createFoodSpotView(spot))
+        return
+      }
+      if (view.epoch !== spot.epoch) {
+        view.epoch = spot.epoch
+        view.root.position.copyFrom(spot.position)
+        span(view.road, Vector3.Zero(), spot.position)
+        view.scale = 0.01 // grows in from nothing, so a respawn reads as a new find
+      }
+    })
+  }
+
+  /**
+   * Road width = collectors heading for this spot as it is now. A spot nobody knows is a
+   * ghost with no road; ants still walking to an emptied spot's old place do not count.
+   */
+  private refreshFoodSpots(total: number): void {
+    const users = new Map<FoodSpot, number>()
+    const knowers = new Map<FoodSpot, number>()
+    this.colony.ants.forEach((ant) => {
+      const m = ant.foodMemory
+      if (!m || m.epoch !== m.spot.epoch) return
+      knowers.set(m.spot, (knowers.get(m.spot) ?? 0) + 1)
+      if (!ant.isSleeping && ant.data.behaviour.actualTask.type === 'Collect') users.set(m.spot, (users.get(m.spot) ?? 0) + 1)
+    })
+    const dim = this.highlighted !== null && this.highlighted !== 'Collect'
+    this.foodViews.forEach((v) => {
+      const known = (knowers.get(v.spot) ?? 0) > 0 || !AUTODISCOVERING
+      const share = (users.get(v.spot) ?? 0) / total
+      const fade = (dim ? 0.15 : 1) * (known ? 1 : 0.3)
+      v.root.getChildMeshes().forEach((m) => (m.visibility = fade))
+      v.road.setEnabled(known)
+      const width = ROAD_MIN + (ROAD_MAX - ROAD_MIN) * Math.sqrt(share)
+      v.road.scaling.x = width
+      v.road.scaling.z = width
+      v.roadMat.alpha = (0.12 + 0.6 * Math.sqrt(share)) * (dim ? 0.15 : 1)
     })
   }
 

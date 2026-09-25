@@ -111,8 +111,11 @@ export const TASKS: Record<AntType, TaskName[]> = {
   W: ['Collect', 'Store', 'Cleaning', 'Expansion', 'Exploration', 'QueenCare', 'EggLarvePupeaCare'],
 }
 
+/** Farthest a site is placed from the nest on each axis, before expansion widens it. */
+export const SITE_RADIUS_MAX = SEARCHING_RADIUS * (Math.PI * 1.35)
+
 const getRandomPos = (): number =>
-  Math.random() * (SEARCHING_RADIUS * (Math.PI * 1.35) - SEARCHING_RADIUS / 2) + SEARCHING_RADIUS / 2
+  Math.random() * (SITE_RADIUS_MAX - SEARCHING_RADIUS / 2) + SEARCHING_RADIUS / 2
 
 // Was out in the field at (-2π·R, π·R, 0); ants sleep inside the nest, so it now sits right under it.
 export const SLEEP_POSITION = new Vector3(0, -SEARCHING_RADIUS * 1.5, 0)
@@ -154,8 +157,15 @@ const farEnough = (candidate: Vector3, taken: Vector3[], min: number): boolean =
  * satisfy. Rather than loop forever it keeps the roomiest candidate it saw, so placement
  * always terminates and degrades to "as far apart as we could manage".
  */
-export const placeSite = (task: TaskName, taken: Vector3[], scale = 1): Vector3 => {
-  const [sx, sy, sz] = SITE_OCTANT[task]
+export const placeSite = (task: TaskName, taken: Vector3[], scale = 1): Vector3 =>
+  placeInOctant(SITE_OCTANT[task], taken, scale)
+
+/** Same rejection sampling as placeSite, for an explicit octant (food spots pick theirs at random). */
+export const placeInOctant = (
+  [sx, sy, sz]: [number, number, number],
+  taken: Vector3[],
+  scale = 1,
+): Vector3 => {
   let best = Vector3.Zero()
   let bestClearance = -1
 
@@ -222,9 +232,12 @@ export const EXPLORATION_COVERAGE = 0.6
 
 /** Half-width of the exploration box on each axis, re-derived on every call (sites move). */
 export const explorationExtent = (): number => {
-  const farthest = Math.max(
-    ...Object.values(TASK_POSITIONS).map((p) => Math.max(Math.abs(p.x), Math.abs(p.z))),
-  )
+  // Food lives in FOOD_SPOTS; the Collect entry of TASK_POSITIONS is no longer a place.
+  const places = [
+    ...(Object.keys(TASK_POSITIONS) as TaskName[]).filter((t) => t !== 'Collect').map((t) => TASK_POSITIONS[t]),
+    ...FOOD_SPOTS.map((spot) => spot.position),
+  ]
+  const farthest = Math.max(...places.map((p) => Math.max(Math.abs(p.x), Math.abs(p.z))))
   return Math.max(EXPLORATION_BASE_EXTENT, (farthest + POS_DISCOVERED_TARGET_MATCH) / EXPLORATION_COVERAGE)
 }
 
@@ -282,6 +295,52 @@ export const FOOD_SITE_SKEW = 2.2
 
 export const rollFoodAmount = (): number =>
   FOOD_SITE_MIN * Math.pow(FOOD_SITE_MAX / FOOD_SITE_MIN, Math.pow(Math.random(), FOOD_SITE_SKEW))
+
+// ---------------------------------------------------------------------------
+// Food spots: several, and more as the foraging area grows
+// ---------------------------------------------------------------------------
+// Food used to be ONE site (TASK_POSITIONS.Collect): when it emptied, the whole colony lost
+// its only source and all its food knowledge at once. Now the ground holds several spots at
+// a constant DENSITY: the spawn radius grows with expansion ("reach"), the area with reach²,
+// and so does the number of spots. Each spot is finite and respawns elsewhere when emptied.
+//
+// A spot's `epoch` changes on every respawn. Ants remember a spot together with the epoch
+// and position they learned, so a memory of an emptied spot is stale, and the ant only
+// finds that out by walking there and finding nothing.
+export interface FoodSpot {
+  id: number
+  epoch: number
+  position: Vector3
+  remaining: number
+  initial: number
+}
+
+export const FOOD_SPOTS_AT_BASE_REACH = 3
+export const FOOD_SPOTS_MAX = 12
+/** Spots the ground should hold for a given spawn reach (1 = starting radius). */
+export const foodSpotTarget = (reach: number): number =>
+  Math.min(FOOD_SPOTS_MAX, Math.max(1, Math.round(FOOD_SPOTS_AT_BASE_REACH * reach * reach)))
+
+/**
+ * Only fresh news recruits. A memory records when food was last SEEN at the spot (by this
+ * ant, or by whoever it heard from: hearsay keeps its age). Ants only pass on memories
+ * confirmed within this window. Without it, memories of emptied spots circulated forever:
+ * ants that found nothing relearned the dead spot from nestmates at the nest (headless:
+ * 99 of 103 ants "knew" food while intake fell to 9/min and the colony starved).
+ */
+export const FOOD_NEWS_FRESH_MS = 3 * 60e3
+
+/** Live registry, owned by the Colony; ants and the view read it. */
+export const FOOD_SPOTS: FoodSpot[] = []
+
+/** A spot with food on it within the discovery window of `pos` (x/z, like every site). */
+export const foodSpotNear = (pos: Vector3): FoodSpot | null =>
+  FOOD_SPOTS.find(
+    (spot) =>
+      spot.remaining > 0 &&
+      Math.abs(spot.position.x - pos.x) <= POS_DISCOVERED_TARGET_MATCH &&
+      Math.abs(spot.position.z - pos.z) <= POS_DISCOVERED_TARGET_MATCH,
+  ) ?? null
 
 // ---------------------------------------------------------------------------
 // Expansion is visible, and it pushes the food away
