@@ -1,10 +1,12 @@
 # ant-sim
 
+**▶ Live: [marcosomma.github.io/ant-sim](https://marcosomma.github.io/ant-sim/)**. Runs in the browser, nothing to install. Open the **About** panel in the app for a guided explanation.
+
 Anthill simulator inspired by D.M. Gordon's _Ant Encounters: Interaction Networks and Colony Behavior_ and Complex Adaptive Systems theory.
 
-This is **not** an ant colony optimization / pheromone-trail simulator. It implements Gordon-style **distributed task allocation**: each ant has a per-individual `geneticalPriority` over tasks, updates a local `rankTasks` score from global urgencies and from sparse ant-to-ant encounters (`setInfluence`), and decides whether to switch tasks via a local rule (`shouldSwitchTask`). No central controller — colony-level allocation emerges from local rules and a feedback signal (`NestNeeds`).
+This is **not** an ant colony optimization / pheromone-trail simulator. It models Gordon-style **distributed task allocation**. No ant is in charge: each one reads how urgent the nest's needs are and, from whom it keeps bumping into, how crowded each task already is. It then switches work by its own response threshold. Division of labour, the colony's size and whether it survives all emerge from those local rules plus a food economy (see [Task switching](#task-switching) and [Colony economy](#colony-economy-dynamic-population)).
 
-Originally hand-written in 2021. Modernized in 2026 to Vite + TypeScript + Babylon.js 8 with the model semantics preserved verbatim.
+Originally hand-written in 2021. Modernized in 2026 to Vite + TypeScript + Babylon.js 8. The original switching rule is kept as `SWITCH_MODEL = 'legacy'` for comparison.
 
 ## Stack
 
