@@ -52,7 +52,7 @@ import {
 } from '../constants'
 import type { Colony } from '../model/colony'
 import { NestView, SLEEP_TINT, bowlMaterial, cordTube, glassOf, roomShell } from './nestView'
-import { NEST_ENTRANCE, NEST_PROFILE, SLEEP_ROOM_RADIUS, SLEEP_SQUASH, groundTilt, moundHeightAt } from './nestShape'
+import { NEST_ENTRANCE, NEST_PROFILE, SLEEP_ROOM_RADIUS, SLEEP_SQUASH, groundTilt, leafMesh, leafTint, moundHeightAt } from './nestShape'
 
 export type NestLayer = 'surface' | 'underground'
 /** Tasks done underground: highlighting one shows the underground view. */
@@ -143,26 +143,6 @@ const pileMatrices = (count: number, radius: number, height: number, size: numbe
     Matrix.Compose(new Vector3(k, k, k), turn, at).copyToArray(m, i * 16)
   }
   return m
-}
-
-/**
- * A leaf lying flat: a pointed lens `length` long, gently curled, with both faces drawn.
- * Food spots are a few fallen leaves; foragers carry a piece of one home.
- */
-const leafMesh = (scene: Scene, name: string, length: number): Mesh => {
-  const leaf = MeshBuilder.CreateDisc(name, { radius: length / 2, tessellation: 18, sideOrientation: Mesh.DOUBLESIDE }, scene)
-  const p = leaf.getVerticesData(VertexBuffer.PositionKind)!
-  for (let i = 0; i < p.length; i += 3) {
-    const u = p[i] / (length / 2) // −1 … 1 along the leaf
-    const taper = Math.sqrt(Math.max(0, 1 - u * u))
-    p[i + 1] *= 0.45 * taper // narrow, pointed at both ends
-    p[i + 2] = -0.12 * length * (1 - u * u) * 0.5 // a slight curl
-  }
-  leaf.updateVerticesData(VertexBuffer.PositionKind, p)
-  leaf.rotation.x = Math.PI / 2 // lie flat
-  leaf.bakeCurrentTransformIntoVertices()
-  leaf.isPickable = false
-  return leaf
 }
 
 /** A flat ring lying on the ground, in a task's colour: the spot's legend mark. */
@@ -867,12 +847,7 @@ export class ColonyView {
         if (count > 0) {
           v.seeds.thinInstanceSetBuffer('matrix', pileMatrices(count, radius, radius * 0.18, 1, v.spot.id, 0.35), 16)
           // Each leaf its own shade, from fresh green to yellow.
-          const tints = new Float32Array(count * 4)
-          for (let i = 0; i < count; i++) {
-            const t = ((i * 0.618034 + v.spot.id * 0.21) % 1)
-            tints.set([0.55 + 0.4 * t, 0.8 - 0.1 * t, 0.25 + 0.05 * t, 1], i * 4)
-          }
-          v.seeds.thinInstanceSetBuffer('color', tints, 4)
+          v.seeds.thinInstanceSetBuffer('color', leafTint(count, v.spot.id), 4)
         }
       }
     })

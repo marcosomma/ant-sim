@@ -191,8 +191,8 @@ const SECTIONS: Section[] = [
       <li><b>Cleaners</b> pick up the <b>debris</b> lying around the entrance (soil dug out, crumbs from
         meals, and nestmates that died near the nest) and carry it to the midden. With nothing lying
         around, they go straight to the midden.</li>
-      <li><b>Foragers</b> bringing food home carry a seed, and cleaners carry their piece of debris.</li>
-      <li>Underground: the <b>granary</b> fills with seed piles, the <b>nursery</b> with eggs and larvae, the
+      <li><b>Foragers</b> bringing food home carry a piece of leaf, and cleaners carry their piece of debris.</li>
+      <li>Underground: the <b>store rooms</b> fill with leaf pieces, the <b>nursery</b> with eggs and larvae, the
         <b>queen</b> rests in her chamber, the sleep chamber swells with sleepers, and new galleries are
         drawn below as the nest expands.</li>
       <li>None of this changes how ants choose their task: that decision stays the colony's own.</li>
@@ -213,7 +213,7 @@ const SECTIONS: Section[] = [
       <li><b>What doesn't fit</b>: food with no store room lies in the tunnels and spoils fast; brood with no
         nursery room is cared for worse. That crowding is what makes the colony dig: the need for
         Expansion rises with it, so the nest grows when it is full, not by the clock.</li>
-      <li>You see the role by what is inside: sleeping ants, eggs and larvae, or seed piles. Brood carers
+      <li>You see the role by what is inside: sleeping ants, eggs and larvae, or stacked leaf pieces. Brood carers
         and storers go and tend those rooms too.</li>
       <li><b>New exits</b>: now and then a shallow tunnel far enough from the nest is dug up to the surface,
         a small crater with a dark hole. An ant going out walks underground to the entrance nearest its

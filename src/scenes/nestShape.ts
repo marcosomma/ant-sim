@@ -1,4 +1,4 @@
-import { Quaternion, Vector3 } from '@babylonjs/core'
+import { Mesh, MeshBuilder, Quaternion, Scene, Vector3, VertexBuffer } from '@babylonjs/core'
 
 import { NEST_BASE_DIAMETER, SEARCHING_RADIUS, SLEEP_CHAMBER_RADIUS, SYMBOL_SCALE } from '../constants'
 
@@ -56,4 +56,34 @@ export const moundHeightAt = (r: number, scale: number): number => {
     if (u <= ra && u >= rbb) return (ya + ((yb - ya) * (ra - u)) / (ra - rbb || 1)) * rb
   }
   return u > 1 ? 0 : NEST_PROFILE[NEST_PROFILE.length - 1][1] * rb
+}
+
+/**
+ * A leaf lying flat: a pointed lens `length` long, gently curled, with both faces drawn.
+ * Food spots are a few fallen leaves; foragers carry a piece of one home; stores hold the pieces.
+ */
+export const leafMesh = (scene: Scene, name: string, length: number): Mesh => {
+  const leaf = MeshBuilder.CreateDisc(name, { radius: length / 2, tessellation: 18, sideOrientation: Mesh.DOUBLESIDE }, scene)
+  const p = leaf.getVerticesData(VertexBuffer.PositionKind)!
+  for (let i = 0; i < p.length; i += 3) {
+    const u = p[i] / (length / 2) // −1 … 1 along the leaf
+    const taper = Math.sqrt(Math.max(0, 1 - u * u))
+    p[i + 1] *= 0.45 * taper // narrow, pointed at both ends
+    p[i + 2] = -0.12 * length * (1 - u * u) * 0.5 // a slight curl
+  }
+  leaf.updateVerticesData(VertexBuffer.PositionKind, p)
+  leaf.rotation.x = Math.PI / 2 // lie flat
+  leaf.bakeCurrentTransformIntoVertices()
+  leaf.isPickable = false
+  return leaf
+}
+
+/** Per-instance leaf shades, fresh green to yellow (deterministic per `seed`). */
+export const leafTint = (count: number, seed = 0): Float32Array => {
+  const tints = new Float32Array(count * 4)
+  for (let i = 0; i < count; i++) {
+    const t = (i * 0.618034 + seed * 0.21) % 1
+    tints.set([0.55 + 0.4 * t, 0.8 - 0.1 * t, 0.25 + 0.05 * t, 1], i * 4)
+  }
+  return tints
 }

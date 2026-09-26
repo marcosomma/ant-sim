@@ -3,11 +3,11 @@ import { Color3, Matrix, Mesh, MeshBuilder, Quaternion, Scene, StandardMaterial,
 import { FOUNDING, SEARCHING_RADIUS, SYMBOL_SCALE, TASK_POSITIONS, groundAt } from '../constants'
 import type { Colony } from '../model/colony'
 import { Focus, TASK_COLOR3 } from '../ui/palette'
-import { QUEEN_ROOM_RADIUS, QUEEN_SQUASH, ROOM_SQUASH, groundTilt } from './nestShape'
+import { QUEEN_ROOM_RADIUS, QUEEN_SQUASH, ROOM_SQUASH, groundTilt, leafMesh, leafTint } from './nestShape'
 
 // The underground anthill as real rooms, each showing what is in it:
 //   the queen's (founding) chamber — the queen, and the little brood and food it holds;
-//   dug rooms with a role — seed piles (store), eggs and larvae (nursery), or sleeping ants;
+//   dug rooms with a role — leaf pieces (store), eggs and larvae (nursery), or sleeping ants;
 // plus the tunnel network the diggers leave behind.
 //
 // Everything underground is drawn clearly (no see-through ground over it, which made rooms,
@@ -156,9 +156,11 @@ export class NestView {
     this.queenCeiling.material = this.roomMats.queen
 
     // Seeds and brood: one mesh each, many thin instances (cheap however many there are).
-    this.seeds = MeshBuilder.CreateSphere('room:seeds', { diameterX: 1.4, diameterY: 0.8, diameterZ: 1, segments: 6 }, scene)
-    this.seeds.material = plain(scene, 'seeds', new Color3(0.78, 0.62, 0.34))
-    this.seeds.isPickable = false
+    // Stores hold what the foragers bring: pieces of leaf, stacked.
+    this.seeds = leafMesh(scene, 'room:leaves', 2.4 * S)
+    const leafMat = plain(scene, 'room:leaves', new Color3(1, 1, 1), 0.15)
+    leafMat.backFaceCulling = false
+    this.seeds.material = leafMat
     this.brood = MeshBuilder.CreateSphere('room:brood', { diameterX: 0.9, diameterY: 1.4, diameterZ: 0.9, segments: 6 }, scene)
     this.brood.material = plain(scene, 'brood', new Color3(0.95, 0.93, 0.85), 0.45)
     this.brood.isPickable = false
@@ -210,7 +212,8 @@ export class NestView {
     const seedKey = seedGroups.map((g) => g.count).join(',')
     if (seedKey !== this.seedKey) {
       this.seedKey = seedKey
-      this.seedCount = this.fill(this.seeds, seedGroups, 1.1 * S)
+      this.seedCount = this.fill(this.seeds, seedGroups, 1)
+      if (this.seedCount > 0) this.seeds.thinInstanceSetBuffer('color', leafTint(this.seedCount, 7), 4)
     }
     const broodGroups = groups('brood', FOUNDING.brood, (f) => Math.round(f), MAX_BROOD)
     const broodKey = broodGroups.map((g) => g.count).join(',')
