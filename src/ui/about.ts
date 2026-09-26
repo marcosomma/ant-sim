@@ -34,7 +34,8 @@ const SECTIONS: Section[] = [
         One rule for all of them: the fuller or taller the shape, the better the task is supplied
         (actual ÷ need). A shape that <i>breathes</i> is badly under-served.</li>
       ${AUTODISCOVERING ? '<li><b>Faded sites</b> are undiscovered: they exist, but no ant knows the way yet, so there is no road.</li>' : ''}
-      <li><b>Roads</b> run from the nest to each known site. Thicker and brighter means more ants on that task.</li>
+      <li>The glowing <b>trails</b> on the ground are the routes ants actually walk (see Terrain, routes and
+        trails).</li>
       <li><b>Ants</b> take their task's colour. A <b>white glow</b> means the ant knows every site and a food spot that really still has food. The glow goes out as soon as its spot is emptied, even before the ant finds out. Dimmed ants are asleep.</li>
       <li><b>Rings</b> from the nest: work delivered (in that task's colour) or a birth (white).
         <b>White spark</b>: two ants met and one taught the other where a site is. <b>Grey spark</b>: a death.</li>
@@ -143,6 +144,24 @@ const SECTIONS: Section[] = [
       <p>The climate's baseline (<code>FOOD_AVAILABILITY</code>) is multiplied by the season: a rich
         climate has mild winters, a poor one hard ones. The ground grid takes a faint seasonal tint, and each
         new season pops up as a notification.</p>`,
+  },
+  {
+    id: 'terrain',
+    title: 'Terrain, routes and trails',
+    body: `<ul>
+      <li>The colony lives on a <b>landscape</b>: hills slow ants down when they climb, <b>water</b> fills the
+        lowest hollows and <b>rocks</b> stand in the way. Neither can be crossed.</li>
+      <li>Ants <b>walk</b> at their own pace, so a trip takes as long as its distance and slope make it.
+        Tunnels to the chambers under the nest are quick.</li>
+      <li>No ant plans a route. Each step, an ant chooses between neighbouring patches of ground, weighing
+        how much the step brings it towards its goal (ants know the <i>direction</i> of their goal and of
+        home, not the way around obstacles) against the <b>trail</b> already there.</li>
+      <li>Ants lay trail as they walk: strongly when coming home with food or from finished work, faintly
+        otherwise. Trails fade. Routes that work are walked more and glow brighter; detours fade away.
+        The glowing paths on the ground are those trails: the colony's routes, written into the ground.</li>
+      <li>An ant hopelessly stuck behind an obstacle eventually falls back on a planned route; how rarely
+        that happens is a measure of how well the trails work.</li>
+    </ul>`,
   },
   {
     id: 'brood',

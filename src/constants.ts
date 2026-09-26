@@ -2,6 +2,8 @@ import { Vector3 } from '@babylonjs/core/Maths/math.vector'
 import { v1 as uuidv1 } from 'uuid'
 
 import { simNow } from './commons/simClock'
+import { createTerrain } from './model/terrain'
+import { Trails } from './model/trails'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -127,6 +129,70 @@ export const TASKS: Record<AntType, TaskName[]> = {
 /** Farthest a site is placed from the nest on each axis, before expansion widens it. */
 export const SITE_RADIUS_MAX = SEARCHING_RADIUS * (Math.PI * 1.35)
 
+// ---------------------------------------------------------------------------
+// Terrain and walking (routes, phase 1)
+// ---------------------------------------------------------------------------
+// The ground is a generated landscape, not a plane: rolling hills and hollows, level around
+// the nest. It covers the largest territory expansion can reach (×2.6) with margin.
+/** How much climbing slows an ant: speed ÷ (1 + SLOPE_COST × uphill grade). Also the route cost. */
+export const SLOPE_COST = 1.5
+
+// Phase 2 of routes: obstacles. Water fills the lowest hollows (WATER_SHARE of the land) and
+// rock outcrops are scattered in the territory; neither can be walked through, so the
+// straight line often isn't possible and ants follow routes around them. Both are kept
+// clear of the nest area (chambers, guard post).
+export const WATER_SHARE = 0.08
+export const ROCK_COUNT = 14
+
+export const TERRAIN = createTerrain({
+  half: SITE_RADIUS_MAX * 3,
+  size: 160,
+  amplitude: SITE_RADIUS_MAX * 0.25,
+  wavelength: SITE_RADIUS_MAX * 0.9,
+  flatRadius: SEARCHING_RADIUS * 1.2,
+  flatRamp: SEARCHING_RADIUS * 1.2,
+  waterShare: WATER_SHARE,
+  rockCount: ROCK_COUNT,
+  rockRadius: [SEARCHING_RADIUS * 0.25, SEARCHING_RADIUS * 0.6],
+  clearRadius: SEARCHING_RADIUS * 2,
+  rockReach: SITE_RADIUS_MAX * 2.6,
+  slopeCost: SLOPE_COST,
+  navSize: 96,
+})
+/** Ground height at (x, z). */
+export const groundAt = (x: number, z: number): number => TERRAIN.heightAt(x, z)
+
+// ---------------------------------------------------------------------------
+// Trails (routes, phase 3)
+// ---------------------------------------------------------------------------
+// Routes are no longer planned: ants walk cell by cell and choose each step, weighing the
+// trail in the next cell against how much it brings them towards their goal (they know the
+// DIRECTION of their goal and of home, like real ants, not the way around obstacles). They
+// lay trail as they walk: strongly when coming home successful (food, or work done at a
+// site), faintly otherwise. Trails fade. Routes that work get walked more and grow; detours
+// fade. The colony's routes live in the ground.
+export const TRAILS_ON = true
+export const TRAILS = new Trails(TERRAIN)
+/** Trail fades by half in this much sim time. */
+export const TRAIL_HALF_LIFE_MS = 3 * 60e3
+/** Trail laid per world unit walked: coming home successful, and everyone else. */
+export const TRAIL_DEPOSIT_SUCCESS = 1
+export const TRAIL_DEPOSIT_FAINT = 0.1
+/** Step choice: weight = ((τ + τ0) / τ0)^α × (goal progress)^β. */
+export const TRAIL_TAU0 = 1
+export const TRAIL_ALPHA = 1
+export const TRAIL_GOAL_BETA = 12
+/** Stepping straight back where you came from is discouraged. */
+export const TRAIL_BACKTRACK_PENALTY = 0.1
+/** Steps without getting closer before the safety valve (a planned route) kicks in. */
+export const TRAIL_STUCK_STEPS = 35
+
+// Ants now WALK at a speed over the ground instead of playing a straight-line animation of
+// fixed length. Trip time follows distance and slope. The base speed keeps the average leg
+// close to the old animations (8–25 s), so the colony's balance carries over.
+/** Walking speed on level ground, world units per sim second (per-ant ±20%). */
+export const WALK_SPEED = 7 * (WORLD_SCALE / 300)
+
 const getRandomPos = (): number =>
   Math.random() * (SITE_RADIUS_MAX - SEARCHING_RADIUS / 2) + SEARCHING_RADIUS / 2
 
@@ -207,13 +273,16 @@ export const INTERIOR_TASKS: TaskName[] = ['QueenCare', 'EggLarvePupeaCare', 'St
 
 /** A point on the surface at a random angle and radius in [minR, maxR], clear of `taken`. */
 export const placeOnSurface = (taken: Vector3[], minR: number, maxR: number, attempts = PLACEMENT_ATTEMPTS): Vector3 => {
-  let best = new Vector3(minR, SURFACE_Y, 0)
+  let best = new Vector3(minR, groundAt(minR, 0), 0)
   let bestClearance = -1
   for (let i = 0; i < attempts; i++) {
     const a = Math.random() * Math.PI * 2
     // Uniform over the annulus' AREA, not its radius, so spots don't bunch up near the nest.
     const rr = Math.sqrt(minR * minR + Math.random() * (maxR * maxR - minR * minR))
-    const candidate = new Vector3(Math.cos(a) * rr, SURFACE_Y, Math.sin(a) * rr)
+    const cx = Math.cos(a) * rr
+    const cz = Math.sin(a) * rr
+    if (!TERRAIN.passable(cx, cz)) continue // not in water, not in rock
+    const candidate = new Vector3(cx, groundAt(cx, cz), cz)
     if (farEnough(candidate, taken, MIN_SITE_DISTANCE)) return candidate
     const clearance = taken.length === 0 ? Infinity : Math.min(...taken.map((p) => Vector3.Distance(candidate, p)))
     if (clearance > bestClearance) {
@@ -327,7 +396,7 @@ export const SLEEP_CHAMBER_RADIUS = 10 * SYMBOL_SCALE
 // colony a carrying capacity instead of "grow to the cap or die".
 
 export const ECONOMY_TICK_MS = 1e3
-export const FOOD_PER_DELIVERY = 10 // × the ant's delivered work value
+export const FOOD_PER_DELIVERY = 14 // × the ant's delivered work value
 export const FORAGING_PATCH = 40 // collectors at which each trip yields half
 export const FOOD_PER_ANT_PER_MIN: Record<AntType, number> = { W: 1, P: 2 }
 export const SPOILAGE_PER_MIN = 0.02 // share of the store lost per minute with no Store work
@@ -596,12 +665,18 @@ export const FLAT_EXPLORATION = true
 /** TRIAL (revert by setting false): draw the nest's underground volume as a faint bowl. */
 export const NEST_BOWL = true
 
-export const getRandomTarget = (): Vector3 =>
-  new Vector3(
-    getRandomArbitrary(randomPointInRadius(false), randomPointInRadius(true)),
-    FLAT_EXPLORATION ? SURFACE_Y : getRandomArbitrary(randomPointInRadius(false), randomPointInRadius(true)),
-    getRandomArbitrary(randomPointInRadius(false), randomPointInRadius(true)),
-  )
+export const getRandomTarget = (): Vector3 => {
+  // Search points on dry, open ground (a few retries; the last draw is used regardless).
+  let x = 0
+  let z = 0
+  for (let i = 0; i < 12; i++) {
+    x = getRandomArbitrary(randomPointInRadius(false), randomPointInRadius(true))
+    z = getRandomArbitrary(randomPointInRadius(false), randomPointInRadius(true))
+    if (TERRAIN.passable(x, z)) break
+  }
+  const y = FLAT_EXPLORATION ? groundAt(x, z) : getRandomArbitrary(randomPointInRadius(false), randomPointInRadius(true))
+  return new Vector3(x, y, z)
+}
 
 export const getSize = (type: AntType): 'big' | 'small' => (type === 'P' ? 'big' : 'small')
 

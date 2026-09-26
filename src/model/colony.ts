@@ -48,6 +48,9 @@ import {
   EXPERIMENT_FROZEN_GROUND,
   FROST_DIG_LOSS,
   FOOD_AVAILABILITY,
+  TRAILS,
+  TRAILS_ON,
+  TRAIL_HALF_LIFE_MS,
   SEASONS,
   SEASON_BLEND,
   SEASON_MODE,
@@ -396,9 +399,14 @@ export class Colony {
   }
 
   /** A random direction, so spots surround the nest instead of sharing one octant. */
-  /** Food lies on the ground, anywhere in the territory (inside the perimeter fence). */
+  /**
+   * Food lies on the ground, anywhere in the territory (inside the perimeter fence), spread
+   * evenly over its area. The INNER edge stays fixed: food keeps turning up near the nest as the
+   * territory grows. (It used to scale with expansion too, so a grown colony only ever found
+   * food far away; once walking made distance cost time, that starved it year after year.)
+   */
   private placeFood(except?: FoodSpot): Vector3 {
-    return placeOnSurface(this.occupied(except), 0.6 * SEARCHING_RADIUS * this.foodReach, SITE_RADIUS_MAX * this.foodReach)
+    return placeOnSurface(this.occupied(except), 0.6 * SEARCHING_RADIUS, SITE_RADIUS_MAX * this.foodReach)
   }
 
   /** Keep the number of spots in line with the size of the foraging area. */
@@ -547,6 +555,8 @@ export class Colony {
 
   private economyTick(): void {
     const dtMin = ECONOMY_TICK_MS / 60e3
+    // Trails fade: routes nobody walks disappear, walked ones are kept up by the walking.
+    if (TRAILS_ON) TRAILS.decay(ECONOMY_TICK_MS, TRAIL_HALF_LIFE_MS)
     this.updateSeason()
     this.ensureFoodSpots()
     this.collectors = this.ants.filter((a) => a.data.behaviour.actualTask.type === 'Collect').length

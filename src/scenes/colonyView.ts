@@ -3,6 +3,7 @@ import {
   ActionManager,
   ArcRotateCamera,
   Color3,
+  DynamicTexture,
   ExecuteCodeAction,
   Matrix,
   Mesh,
@@ -12,6 +13,8 @@ import {
   StandardMaterial,
   TransformNode,
   Vector3,
+  VertexBuffer,
+  VertexData,
 } from '@babylonjs/core'
 import { GridMaterial } from '@babylonjs/materials/grid/gridMaterial'
 
@@ -24,6 +27,11 @@ import {
   FoodSpot,
   NEST_BASE_DIAMETER,
   EXPERIMENT_FROZEN_GROUND,
+  INTERIOR_TASKS,
+  TRAILS,
+  TRAILS_ON,
+  TERRAIN,
+  groundAt,
   NEST_BOWL,
   SEARCHING_RADIUS,
   SCOUTING,
@@ -57,6 +65,9 @@ const BOWL_BASE_RADIUS = 2 * SEARCHING_RADIUS
 const BASE_DIAMETER = 12 * S
 const ROAD_MIN = 0.25 * S
 const ROAD_MAX = 3.5 * S
+const ROAD_POINTS = 48
+const FENCE_PANELS = 96
+const FENCE_HEIGHT = 4.5 * S
 const REFRESH_MS = 250
 // Encounter pings (only for the selected task): at most this many per real second, each
 // visible for PING_LIFE_S real seconds, so high sim speeds show a sample, not a blizzard.
@@ -65,6 +76,7 @@ const PING_LIFE_S = 0.6
 const DEATH = new Color3(0.45, 0.45, 0.43)
 const WHITE = Color3.White()
 const ICE = new Color3(0.86, 0.93, 1)
+const WATER = new Color3(0.16, 0.32, 0.5)
 const BLACK = Color3.Black()
 
 interface Site {
@@ -125,6 +137,8 @@ const span = (mesh: Mesh, a: Vector3, b: Vector3): void => {
   mesh.scaling.y = dir.length()
 }
 
+const pos3 = (v: Vector3): Vector3 => v
+
 export class ColonyView {
   private sites = {} as Record<TaskName, Site>
   private nest!: Mesh
@@ -138,8 +152,14 @@ export class ColonyView {
   private foodViews: FoodSpotView[] = []
   private perimeter!: TransformNode
   private perimeterMat!: StandardMaterial
+  private fence!: Mesh
+  private fenceMatrices!: Float32Array
+  private fenceRadius = 0
   private grid!: GridMaterial
   private frostMat: StandardMaterial | null = null
+  private trailTexture: DynamicTexture | null = null
+  private soilMat!: StandardMaterial
+  private waterMat!: StandardMaterial
   private bowl: Mesh | null = null
   /** Eased scouting supply shown by the perimeter's brightness. */
   private scoutLevel = 0
@@ -179,14 +199,91 @@ export class ColonyView {
 
   // --- construction --------------------------------------------------------
 
+  /** A ground mesh shaped like the terrain (the heightmap), `lift` units above it. */
+  private terrainMesh(name: string, lift = 0): Mesh {
+    const side = TERRAIN.half * 2
+    const mesh = MeshBuilder.CreateGround(name, { width: side, height: side, subdivisions: TERRAIN.size, updatable: true }, this.scene)
+    const positions = mesh.getVerticesData(VertexBuffer.PositionKind)!
+    for (let i = 0; i < positions.length; i += 3) positions[i + 1] = groundAt(positions[i], positions[i + 2]) + lift
+    mesh.updateVerticesData(VertexBuffer.PositionKind, positions)
+    const normals: number[] = []
+    VertexData.ComputeNormals(positions, mesh.getIndices()!, normals)
+    mesh.updateVerticesData(VertexBuffer.NormalKind, normals)
+    // Babylon keeps the flat plane's bounds after a reshape; refresh them or hills get culled.
+    mesh.refreshBoundingInfo()
+    mesh.isPickable = false
+    return mesh
+  }
+
   private createGround(): void {
-    const ground = MeshBuilder.CreateGround('nest-level', { width: GROUND_SIZE, height: GROUND_SIZE }, this.scene)
+    // The ground is the terrain now: hills and hollows from the heightmap, level at the nest.
+    // A LIT soil layer gives the hills light and shade; the grid lines sit just above it.
+    const soil = this.terrainMesh('soil')
+    const soilMat = new StandardMaterial('soil', this.scene)
+    soilMat.specularColor = BLACK.clone()
+    soilMat.alpha = 0.62 // chambers underground still show through, like a cut-away
+    soilMat.backFaceCulling = false
+    soil.material = soilMat
+    this.soilMat = soilMat
+
+    // Water fills the lowest hollows: one surface at the water level, which the terrain hides
+    // wherever the ground is higher. Rocks: low-poly outcrops. Neither can be walked through.
+    // Only where the ground really is below water: a flat sheet at the water level whose
+    // vertices fade to fully transparent wherever the terrain rises above it. (A plain plane
+    // showed through the see-through soil everywhere and tinted the whole ground blue.)
+    const side = TERRAIN.half * 2
+    const water = MeshBuilder.CreateGround('water', { width: side, height: side, subdivisions: TERRAIN.size }, this.scene)
+    water.position.y = TERRAIN.waterLevel
+    water.isPickable = false
+    const wp = water.getVerticesData(VertexBuffer.PositionKind)!
+    const colors = new Float32Array((wp.length / 3) * 4)
+    for (let i = 0, c = 0; i < wp.length; i += 3, c += 4) {
+      const depth = TERRAIN.waterLevel - groundAt(wp[i], wp[i + 2])
+      colors.set([1, 1, 1, Math.min(1, Math.max(0, depth / (0.6 * S)))], c)
+    }
+    water.setVerticesData(VertexBuffer.ColorKind, colors)
+    water.hasVertexAlpha = true
+    const waterMat = material(this.scene, 'water', new Color3(0.16, 0.32, 0.5), 0.6, 0.25)
+    waterMat.specularColor = new Color3(0.3, 0.35, 0.4)
+    water.material = waterMat
+    this.waterMat = waterMat
+    const rockMat = material(this.scene, 'rock', new Color3(0.36, 0.35, 0.33), 1, 0.08)
+    TERRAIN.rocks.forEach((rock, i) => {
+      const m = MeshBuilder.CreateIcoSphere(`rock:${i}`, { radius: 1, subdivisions: 1, flat: true }, this.scene)
+      m.scaling.set(rock.r, rock.r * 0.7, rock.r * (0.8 + 0.4 * ((i * 37) % 10) / 10))
+      m.rotation.y = i * 1.7
+      m.position.set(rock.x, groundAt(rock.x, rock.z), rock.z)
+      m.material = rockMat
+      m.isPickable = false
+    })
+
+    // Trails glow on the ground: warm amber, brighter where more ants have come home that way.
+    if (TRAILS_ON) {
+      const n = TERRAIN.nav.size
+      const overlay = this.terrainMesh('trails', 0.08 * S)
+      const tex = new DynamicTexture('trails', { width: n, height: n }, this.scene, false)
+      tex.hasAlpha = true
+      tex.wrapU = tex.wrapV = 0 // clamp
+      const mat = new StandardMaterial('trails', this.scene)
+      mat.diffuseColor = BLACK.clone()
+      mat.specularColor = BLACK.clone()
+      mat.emissiveTexture = tex
+      mat.opacityTexture = tex
+      mat.disableLighting = true
+      mat.backFaceCulling = false
+      overlay.material = mat
+      this.trailTexture = tex
+      this.paintTrails()
+      window.setInterval(() => this.paintTrails(), 500)
+    }
+
+    const ground = this.terrainMesh('nest-level', 0.03 * S)
     ground.isPickable = false
     this.ground = ground
     const grid = new GridMaterial('nest-level-grid', this.scene)
     grid.mainColor = BLACK.clone()
     grid.lineColor = new Color3(0.3, 0.3, 0.28)
-    grid.opacity = 0.55
+    grid.opacity = 0 // lines only: the lit soil underneath carries the colour
     grid.gridRatio = 20 * S
     grid.majorUnitFrequency = 5
     grid.minorUnitVisibility = 0.3
@@ -196,9 +293,7 @@ export class ColonyView {
 
     // EXPERIMENTAL frozen ground: a faint icy sheen just above the grid, as strong as the frost.
     if (EXPERIMENT_FROZEN_GROUND) {
-      const frost = MeshBuilder.CreateGround('frost', { width: GROUND_SIZE, height: GROUND_SIZE }, this.scene)
-      frost.position.y = 0.05 * S
-      frost.isPickable = false
+      const frost = this.terrainMesh('frost', 0.05 * S)
       const mat = material(this.scene, 'frost', new Color3(0.85, 0.92, 1), 0, 0.6)
       mat.disableLighting = true
       frost.material = mat
@@ -219,30 +314,39 @@ export class ColonyView {
    */
   private createPerimeter(): void {
     const node = new TransformNode('perimeter', this.scene)
-    const PANELS = 96
-    const HEIGHT = 4.5 * S
     const panel = MeshBuilder.CreateBox('perimeter:fence', { size: 1 }, this.scene)
     panel.isPickable = false
     panel.parent = node
-    const arc = (Math.PI * 2) / PANELS
-    const matrices = new Float32Array(PANELS * 16)
-    for (let i = 0; i < PANELS; i++) {
-      const a = i * arc
-      // Box x-axis along the tangent: rotation about Y by −(a + π/2) in Babylon's frame.
-      const rotation = Quaternion.RotationAxis(Vector3.Up(), -a - Math.PI / 2)
-      Matrix.Compose(
-        new Vector3(arc * 0.6, HEIGHT, 0.006), // 60% panel, 40% gap: the dashes
-        rotation,
-        new Vector3(Math.cos(a), SURFACE_Y + HEIGHT / 2, Math.sin(a)),
-      ).copyToArray(matrices, i * 16)
-    }
-    panel.thinInstanceSetBuffer('matrix', matrices, 16)
+    this.fence = panel
+    this.fenceMatrices = new Float32Array(FENCE_PANELS * 16)
     const mat = material(this.scene, 'perimeter:fence', SCOUTING ? TASK_COLOR3.Exploration : new Color3(0.72, 0.7, 0.62), 0.55, 0.6)
     mat.backFaceCulling = false
     panel.material = mat
     this.perimeterMat = mat
-    node.scaling.set(SITE_RADIUS_MAX * this.colony.foodReach, 1, SITE_RADIUS_MAX * this.colony.foodReach)
     this.perimeter = node
+    this.layoutFence(SITE_RADIUS_MAX * this.colony.foodReach)
+  }
+
+  /**
+   * Stand the fence panels on the terrain around a circle of `radius`: each panel at the
+   * ground's height where it stands, 60% panel / 40% gap for the dashed look.
+   */
+  private layoutFence(radius: number): void {
+    this.fenceRadius = radius
+    const arc = (Math.PI * 2) / FENCE_PANELS
+    const width = arc * radius * 0.6
+    for (let i = 0; i < FENCE_PANELS; i++) {
+      const a = i * arc
+      const x = Math.cos(a) * radius
+      const z = Math.sin(a) * radius
+      // Box x-axis along the tangent: rotation about Y by −(a + π/2) in Babylon's frame.
+      Matrix.Compose(
+        new Vector3(width, FENCE_HEIGHT, 0.8 * S),
+        Quaternion.RotationAxis(Vector3.Up(), -a - Math.PI / 2),
+        new Vector3(x, groundAt(x, z) + FENCE_HEIGHT / 2, z),
+      ).copyToArray(this.fenceMatrices, i * 16)
+    }
+    this.fence.thinInstanceSetBuffer('matrix', this.fenceMatrices, 16)
   }
 
   private createNest(): void {
@@ -257,9 +361,18 @@ export class ColonyView {
     nest.material = material(this.scene, 'nest', new Color3(0.55, 0.42, 0.3), 0.9, 0.25)
     nest.isPickable = false
 
+    // The tunnel system ants walk: a vertical shaft from the nest down to the sleep chamber, and a
+    // horizontal branch from the shaft to each chamber at its own depth.
+    const tunnelMat = material(this.scene, 'nest:tunnel', new Color3(0.55, 0.42, 0.3), 0.35, 0.15)
     const tunnel = bottomPivotCylinder('nest:tunnel', 2.5 * S, this.scene)
     span(tunnel, SLEEP_POSITION, Vector3.Zero())
-    tunnel.material = material(this.scene, 'nest:tunnel', new Color3(0.55, 0.42, 0.3), 0.25, 0.15)
+    tunnel.material = tunnelMat
+    INTERIOR_TASKS.forEach((task) => {
+      const chamber = TASK_POSITIONS[task]
+      const branch = bottomPivotCylinder(`nest:tunnel:${task}`, 2 * S, this.scene)
+      span(branch, new Vector3(0, chamber.y, 0), chamber)
+      branch.material = tunnelMat
+    })
 
     const chamber = MeshBuilder.CreateSphere(
       'sleep-chamber',
@@ -305,8 +418,7 @@ export class ColonyView {
     // What the task is (silhouette) and how well it is supplied (how complete it is).
     const marker = task === 'Collect' ? null : buildSiteMarker(task, scene, root, color)
 
-    const road = bottomPivotCylinder(`site:${task}:road`, 1, scene)
-    span(road, Vector3.Zero(), pos)
+    const road = this.roadMesh(`site:${task}:road`, pos)
     const roadMat = material(scene, `site:${task}:road`, color, 0.2, 0.6)
     road.material = roadMat
 
@@ -440,8 +552,8 @@ export class ColonyView {
 
     // The territory follows expansion, eased like the dome.
     const territory = SITE_RADIUS_MAX * this.colony.foodReach
-    const r = this.perimeter.scaling.x + (territory - this.perimeter.scaling.x) * 0.05
-    this.perimeter.scaling.set(r, 1, r)
+    const r = this.fenceRadius + (territory - this.fenceRadius) * 0.05
+    if (Math.abs(r - this.fenceRadius) > 0.05) this.layoutFence(r)
     if (SCOUTING) this.paintPerimeter()
     // Faint seasonal tint on the ground grid (neutral when seasons are off).
     const [tr, tg, tb] = this.colony.season.tint
@@ -450,6 +562,10 @@ export class ColonyView {
     // the chambers underground still show through like a cut-away.
     const [gr, gg, gb] = this.colony.season.ground
     this.grid.mainColor.set(gr, gg, gb)
+    // Lit soil: brighter than the flat tone, so shading has room to show the relief.
+    this.soilMat.diffuseColor.set(gr * 2.4, gg * 2.4, gb * 2.4)
+    // Pools ice over as the ground freezes (visual; water is still impassable).
+    Color3.LerpToRef(WATER, ICE, this.colony.season.frost * 0.8, this.waterMat.diffuseColor)
     if (this.frostMat) this.frostMat.alpha = 0.09 * this.colony.season.frost
 
     // The underground bowl covers every chamber (deepest: the sleep chamber) and grows with expansion.
@@ -523,9 +639,7 @@ export class ColonyView {
     // far out. Scale it with distance to keep a scroll worth the same fraction of the view.
     this.camera.wheelPrecision = Math.max(0.08, WHEEL_PRECISION_AT_BASE * (BASE_RADIUS / Math.max(1, this.camera.radius)))
 
-    const wantGround = Math.max(GROUND_SIZE, extent * 2.4)
-    const scale = wantGround / GROUND_SIZE
-    if (scale > this.ground.scaling.x) this.ground.scaling.setAll(scale)
+    // (The terrain already covers the largest territory expansion can reach: no rescaling.)
   }
 
   private refresh(): void {
@@ -563,10 +677,10 @@ export class ColonyView {
       const fade = (dim ? 0.15 : 1) * (discovered ? 1 : 0.3)
       site.root.getChildMeshes().forEach((m) => (m.visibility = fade))
       // Scouts roam the territory rather than walking to the beacon, so it gets no road.
-      site.road.setEnabled(discovered && !(SCOUTING && task === 'Exploration'))
+      // With trails the ground shows the real routes, so the straight roads are off.
+      site.road.setEnabled(!TRAILS_ON && discovered && !(SCOUTING && task === 'Exploration'))
       const width = ROAD_MIN + (ROAD_MAX - ROAD_MIN) * Math.sqrt(share)
-      site.road.scaling.x = width
-      site.road.scaling.z = width
+      this.setRoadWidth(site.road, pos3(site.root.position), width)
       site.roadMat.alpha = (0.12 + 0.6 * Math.sqrt(share)) * (dim ? 0.15 : 1)
     })
   }
@@ -590,6 +704,72 @@ export class ColonyView {
     this.perimeterMat.emissiveColor.copyFrom(TASK_COLOR3.Exploration).scaleInPlace(lit ? 0.9 : 0.6)
   }
 
+  /** Redraw the trail overlay from the trail field (one pixel per route-grid cell). */
+  private paintTrails(): void {
+    const tex = this.trailTexture
+    if (!tex) return
+    const n = TERRAIN.nav.size
+    const ctx = tex.getContext() as CanvasRenderingContext2D
+    const img = ctx.createImageData(n, n)
+    // Normalise against a high but not extreme level, so one busy cell doesn't wash out the rest.
+    const ref = Math.max(8, TRAILS.peak * 0.35)
+    for (let j = 0; j < n; j++) {
+      for (let i = 0; i < n; i++) {
+        const v = Math.min(1, Math.sqrt(TRAILS.strength[j * n + i] / ref))
+        // Texture rows run top-down while cells run from −z: flip rows so the glow sits under the walkers.
+        const o = ((n - 1 - j) * n + i) * 4
+        img.data[o] = 255
+        img.data[o + 1] = 205
+        img.data[o + 2] = 120
+        img.data[o + 3] = Math.round(220 * v)
+      }
+    }
+    ctx.putImageData(img, 0, 0)
+    tex.update()
+  }
+
+  // --- roads: draped over the terrain ------------------------------------------
+
+  /** 24 points from the nest to `to`: over the ground, or a straight tunnel if `to` is underground. */
+  private roadPath(to: Vector3): Vector3[] {
+    const underground = to.y < -1
+    if (underground) {
+      return Array.from({ length: ROAD_POINTS }, (_, i) => to.scale(i / (ROAD_POINTS - 1)))
+    }
+    // The real route: the nest's route map, reversed (nest → site), around water and rock.
+    const home = TERRAIN.routeToNest(to.x, to.z)
+    const way = home.length > 0 ? [{ x: 0, z: 0 }, ...home.slice(0, -1).reverse(), { x: to.x, z: to.z }] : [{ x: 0, z: 0 }, { x: to.x, z: to.z }]
+    // Resample to a fixed point count (tubes are updated in place, which needs the same count).
+    const cum = [0]
+    for (let i = 1; i < way.length; i++) cum.push(cum[i - 1] + Math.hypot(way[i].x - way[i - 1].x, way[i].z - way[i - 1].z))
+    const total = cum[cum.length - 1] || 1
+    let k = 0
+    return Array.from({ length: ROAD_POINTS }, (_, i) => {
+      const d = (i / (ROAD_POINTS - 1)) * total
+      while (k < way.length - 2 && cum[k + 1] < d) k++
+      const span = cum[k + 1] - cum[k] || 1
+      const t = Math.min(1, Math.max(0, (d - cum[k]) / span))
+      const x = way[k].x + (way[k + 1].x - way[k].x) * t
+      const z = way[k].z + (way[k + 1].z - way[k].z) * t
+      return new Vector3(x, groundAt(x, z) + 0.3 * S, z)
+    })
+  }
+
+  private roadMesh(name: string, to: Vector3): Mesh {
+    const road = MeshBuilder.CreateTube(
+      name,
+      { path: this.roadPath(to), radius: ROAD_MIN / 2, tessellation: 6, updatable: true },
+      this.scene,
+    )
+    road.isPickable = false
+    return road
+  }
+
+  /** Re-shape a road in place (same point count): new end point and/or width. */
+  private setRoadWidth(road: Mesh, to: Vector3, width: number): void {
+    MeshBuilder.CreateTube(road.name, { path: this.roadPath(to), radius: width / 2, instance: road })
+  }
+
   // --- food spots ------------------------------------------------------------
 
   private createFoodSpotView(spot: FoodSpot): FoodSpotView {
@@ -611,8 +791,7 @@ export class ColonyView {
       new ExecuteCodeAction(ActionManager.OnPickTrigger, () => this.focus(spot.position.clone(), FOCUS_RADIUS)),
     )
 
-    const road = bottomPivotCylinder(`food:${spot.id}:road`, 1, scene)
-    span(road, Vector3.Zero(), spot.position)
+    const road = this.roadMesh(`food:${spot.id}:road`, spot.position)
     const roadMat = material(scene, `food:${spot.id}:road`, color, 0.2, 0.6)
     road.material = roadMat
     return { spot, epoch: spot.epoch, root, road, roadMat, scale: 0.01 }
@@ -637,7 +816,7 @@ export class ColonyView {
       if (view.epoch !== spot.epoch) {
         view.epoch = spot.epoch
         view.root.position.copyFrom(spot.position)
-        span(view.road, Vector3.Zero(), spot.position)
+        this.setRoadWidth(view.road, spot.position, ROAD_MIN)
         view.scale = 0.01 // grows in from nothing, so a respawn reads as a new find
       }
     })
@@ -662,10 +841,9 @@ export class ColonyView {
       const share = (users.get(v.spot) ?? 0) / total
       const fade = (dim ? 0.15 : 1) * (known ? 1 : 0.3)
       v.root.getChildMeshes().forEach((m) => (m.visibility = fade))
-      v.road.setEnabled(known)
+      v.road.setEnabled(!TRAILS_ON && known)
       const width = ROAD_MIN + (ROAD_MAX - ROAD_MIN) * Math.sqrt(share)
-      v.road.scaling.x = width
-      v.road.scaling.z = width
+      this.setRoadWidth(v.road, v.spot.position, width)
       v.roadMat.alpha = (0.12 + 0.6 * Math.sqrt(share)) * (dim ? 0.15 : 1)
     })
   }
