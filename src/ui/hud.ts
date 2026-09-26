@@ -7,12 +7,12 @@ import {
   TaskName,
 } from '../constants'
 import type { Colony, LayLimit } from '../model/colony'
-import { TASK_HEX, TASK_LABEL, TASK_ORDER } from './palette'
+import { Focus, SLEEP_HEX, SLEEP_LABEL, TASK_HEX, TASK_LABEL, TASK_ORDER } from './palette'
 import '../assets/css/hud.css'
 
 export interface HudSource {
   colony: Colony
-  onHighlight?: (task: TaskName | null) => void
+  onHighlight?: (focus: Focus | null) => void
 }
 
 // Demand bar is log2(need / actual), clamped: full arm = 8× over- or under-served.
@@ -150,24 +150,25 @@ export const createHud = (src: HudSource): void => {
   demandHead.title = 'Demand vs supply'
   tasks.append(tasksHead)
 
-  const rows = {} as Record<TaskName, Row>
+  const rows = {} as Record<Focus, Row>
+  const FOCUSES: Focus[] = [...TASK_ORDER, 'Sleep']
   // Click pins a task (its ants stay singled out in 3D and their encounters show);
-  // hover previews a task only while nothing is pinned.
-  let pinned: TaskName | null = null
-  const setPinned = (task: TaskName | null): void => {
+  // hover previews a task only while nothing is pinned. Sleep has a row of its own too.
+  let pinned: Focus | null = null
+  const setPinned = (task: Focus | null): void => {
     pinned = task
-    TASK_ORDER.forEach((t) => {
+    FOCUSES.forEach((t) => {
       rows[t].el.classList.toggle('is-pinned', t === pinned)
       rows[t].el.setAttribute('aria-pressed', String(t === pinned))
     })
   }
-  TASK_ORDER.forEach((task) => {
-    const el = h('div', 'hud-task')
-    el.style.setProperty('--task', TASK_HEX[task])
+  FOCUSES.forEach((task) => {
+    const el = h('div', task === 'Sleep' ? 'hud-task hud-task--sleep' : 'hud-task')
+    el.style.setProperty('--task', task === 'Sleep' ? SLEEP_HEX : TASK_HEX[task])
     el.tabIndex = 0
 
     const name = h('span', 'hud-task-name')
-    name.append(h('i', 'hud-swatch'), h('span', '', TASK_LABEL[task]))
+    name.append(h('i', 'hud-swatch'), h('span', '', task === 'Sleep' ? SLEEP_LABEL : TASK_LABEL[task]))
 
     const workCell = h('span', 'hud-work')
     const workTrack = h('span', 'hud-bar')
@@ -183,10 +184,13 @@ export const createHud = (src: HudSource): void => {
     demandTrack.append(demand, h('span', 'hud-demand-mid'))
 
     el.append(name, workCell, demandTrack)
-    if (AUTODISCOVERING) el.append(known)
+    if (AUTODISCOVERING && task !== 'Sleep') el.append(known)
     el.setAttribute('role', 'button')
     el.setAttribute('aria-pressed', 'false')
-    el.title = 'Click to pin: keeps these ants highlighted and shows whom they meet'
+    el.title =
+      task === 'Sleep'
+        ? 'Click to pin: keeps the sleeping ants, the sleep chamber and the sleeping rooms highlighted'
+        : 'Click to pin: keeps these ants highlighted and shows whom they meet'
     const enter = (): void => {
       showTip(task, el)
       if (!pinned) src.onHighlight?.(task)
@@ -220,7 +224,7 @@ export const createHud = (src: HudSource): void => {
   const legend = h(
     'p',
     'hud-note',
-    'Workforce: solid = awake, faded = asleep. Right bar: need ÷ actual, log scale (full arm = 8×), centre = balanced. Underline: share of ants that know the site. Hover a task to preview it in 3D; click to pin it and see whom its ants meet.',
+    'Workforce: solid = awake, faded = asleep. Right bar: need ÷ actual, log scale (full arm = 8×), centre = balanced. Underline: share of ants that know the site. Sleep: how many are asleep; its right bar is sleepers ÷ sleeping space (under = crowded). Hover a row to preview it in 3D; click to pin it and see whom its ants meet.',
   )
   tasks.append(legend)
 
@@ -233,7 +237,7 @@ export const createHud = (src: HudSource): void => {
 
   // --- Live state -----------------------------------------------------------
   let snapshot = {} as Record<TaskName, TaskSnapshot>
-  let tipTask: TaskName | null = null
+  let tipTask: Focus | null = null
   let tipAnchor: HTMLElement | null = null
   let maxGeneration = 1
 
@@ -255,6 +259,28 @@ export const createHud = (src: HudSource): void => {
 
   const renderTip = (): void => {
     if (!tipTask || !tipAnchor) return
+    if (tipTask === 'Sleep') {
+      const c = src.colony
+      const asleep = c.asleep
+      const space = c.roomSpace.sleep
+      const lines: [string, string][] = [
+        ['Asleep', `${asleep}`],
+        ['of the colony', pct(c.ants.length ? asleep / c.ants.length : 0)],
+        ['Sleeping space', `${Math.round(space)}`],
+        ['Sleeping rooms', `${c.digNetwork.filter((n) => n.role === 'sleep').length}`],
+        ['No room (crowded)', `${Math.round(c.unhoused.sleep)}`],
+      ]
+      tip.replaceChildren(
+        h('strong', '', SLEEP_LABEL),
+        ...lines.map(([k, v]) => {
+          const row = h('div', 'hud-tip-row')
+          row.append(h('span', '', k), h('span', 'hud-tip-value', v))
+          return row
+        }),
+      )
+      placeTip()
+      return
+    }
     const n = src.colony.needs[tipTask]
     const s = snapshot[tipTask]
     const total = src.colony.ants.length || 1
@@ -275,7 +301,12 @@ export const createHud = (src: HudSource): void => {
         return row
       }),
     )
-    // Beside the row when there is room (desktop), otherwise just below it (phone).
+    placeTip()
+  }
+
+  /** Beside the row when there is room (desktop), otherwise just below it (phone). */
+  const placeTip = (): void => {
+    if (!tipAnchor) return
     const r = tipAnchor.getBoundingClientRect()
     const fitsRight = r.right + 12 + tip.offsetWidth <= window.innerWidth
     const left = fitsRight ? r.right + 12 : Math.max(8, r.left)
@@ -283,7 +314,7 @@ export const createHud = (src: HudSource): void => {
     tip.style.transform = `translate(${left}px, ${top}px)`
   }
 
-  function showTip(task: TaskName, anchor: HTMLElement): void {
+  function showTip(task: Focus, anchor: HTMLElement): void {
     tipTask = task
     tipAnchor = anchor
     tip.classList.add('is-visible')
@@ -410,6 +441,24 @@ export const createHud = (src: HudSource): void => {
       row.el.classList.toggle('is-starved', d >= DEMAND_CLAMP)
       if (AUTODISCOVERING) row.known.style.width = pct(total ? s.known / total : 0)
     })
+
+    // Sleep: how many are asleep, and sleepers against sleeping space (crowded = "under").
+    {
+      const row = rows.Sleep
+      const asleep = colony.asleep
+      const space = Math.max(1, colony.roomSpace.sleep)
+      const ratio = asleep / space
+      const log = ratio > 0 ? Math.log2(ratio) : -DEMAND_CLAMP
+      const d = Math.max(-DEMAND_CLAMP, Math.min(DEMAND_CLAMP, log))
+      const half = (Math.abs(d) / DEMAND_CLAMP) * 50
+      row.work.style.width = '0%'
+      row.sleep.style.width = pct(asleep / Math.max(maxAnts, asleep, 1))
+      row.count.textContent = `${asleep}`
+      row.demand.style.left = d >= 0 ? '50%' : `${50 - half}%`
+      row.demand.style.width = `${half}%`
+      row.demand.classList.toggle('is-under', d > 0)
+      row.el.classList.toggle('is-starved', d >= DEMAND_CLAMP)
+    }
 
     renderTip()
   }

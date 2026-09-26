@@ -246,12 +246,13 @@ const SECTIONS: Section[] = [
         e.g. to watch a long winter.</li>
       <li>Speed slider: pause to 16×. <kbd>Space</kbd> pauses, <kbd>[</kbd> <kbd>]</kbd> step slower / faster.
         Everything (timers, lifespans, movement) follows the same clock.</li>
-      <li>Drag to orbit, scroll to zoom. Click a site's base to fly to it, and <kbd>H</kbd> returns to the nest.</li>
+      <li>Drag to orbit, scroll to zoom, <kbd>H</kbd> returns to the nest. Nothing in the 3D view is clickable:
+        select tasks (and Sleep) in the Anthill panel.</li>
       <li><b>Surface / Underground</b> (Controls bar, or <kbd>U</kbd>): two views instead of one see-through one.
         Surface shows the solid ground and what happens on it. Underground fades the surface to a ghost overhead
         and shows the nest: each room is a closed shell, its upper half solid in the colour of what it is used for
         (store green, nursery amber, sleeping blue, the queen's chamber, plain earth when free) and its lower half
-        see-through, so you see what is in it; tunnels are thin cords the ants move along. The view also goes underground by itself while the camera is below the ground or an
+        see-through, so you see what is in it; tunnels are thin cords along their smooth curves. The view also goes underground by itself while the camera is below the ground or an
         underground task (queen care, brood care, store, expansion) is highlighted; the Underground point is
         then outlined dashed.</li>
       <li>All settings live in the <b>Controls</b> bar at the bottom; the Anthill panel only reports.</li>

@@ -181,6 +181,14 @@ export const createControls = (colony: Colony, soundButton: HTMLButtonElement, v
   const sound = h('div', 'controls-group controls-group--end')
   sound.append(soundButton)
 
-  root.append(time, h('span', 'controls-rule'), seasons, h('span', 'controls-rule'), layers, h('span', 'controls-rule'), sound)
+  root.append(
+    time,
+    h('span', 'controls-rule'),
+    seasons,
+    h('span', 'controls-rule'),
+    layers,
+    h('span', 'controls-rule'),
+    sound,
+  )
   document.body.append(root)
 }

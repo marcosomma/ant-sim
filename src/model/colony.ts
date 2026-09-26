@@ -1,4 +1,4 @@
-import { ArcRotateCamera, Scene, Vector3 } from '@babylonjs/core'
+import { ArcRotateCamera, Curve3, Scene, Vector3 } from '@babylonjs/core'
 
 import Ant from '../classes/ant'
 import { simNow, simSetInterval } from '../commons/simClock'
@@ -82,6 +82,8 @@ import {
   DIG_SHAFT_DROP,
   DIG_MAX_DEPTH,
   DIG_WANDER,
+  DIG_BENDS,
+  DIG_CURVE_STEPS,
   DIG_DEPTH_SCALE,
   DIG_VERTICAL_ROOM,
   DIG_WORK_PER_TUNNEL,
@@ -522,14 +524,20 @@ export class Colony {
       const y = from.y + dy
       if (Math.hypot(x, z) > reach) continue // inside the territory
       if (y > groundAt(x, z) - 0.15 * R || y < -DIG_MAX_DEPTH) continue // underground, not too deep
-      // The tunnel wanders: two bends pushed off the straight line, at random.
+      // A tunnel runs close to the direct line from its start to its end: DIG_BENDS gentle bends,
+      // each pushed only SIDEWAYS (never back along the tunnel) by up to DIG_WANDER of its length,
+      // then smoothed below. An arc, never a loop.
       const end = new Vector3(x, y, z)
       const span = Vector3.Distance(from, end)
-      const via = [1 / 3, 2 / 3].map((t) =>
-        Vector3.Lerp(from, end, t).add(
-          new Vector3(Math.random() - 0.5, (Math.random() - 0.5) * (shaft ? 1 : 0.4), Math.random() - 0.5).scale(2 * DIG_WANDER * span),
-        ),
-      )
+      const dir = end.subtract(from).normalize()
+      const helper = Math.abs(dir.y) > 0.9 ? Vector3.Right() : Vector3.Up()
+      const sideA = Vector3.Cross(dir, helper).normalize()
+      const sideB = Vector3.Cross(dir, sideA).normalize()
+      const via = Array.from({ length: DIG_BENDS }, (_, k) => (k + 1) / (DIG_BENDS + 1)).map((t) => {
+        const off = (Math.random() * 2 - 1) * DIG_WANDER * span
+        const off2 = (Math.random() * 2 - 1) * DIG_WANDER * span * 0.4
+        return Vector3.Lerp(from, end, t).add(sideA.scale(off)).add(sideB.scale(off2))
+      })
       // Shafts end in a small junction; galleries mostly in a small chamber, now and then a large one.
       const room = shaft
         ? R * (0.12 + Math.random() * 0.08)
@@ -539,6 +547,9 @@ export class Colony {
       if (!DIG_NETWORK.every((n) => clear(n.pos, n.room))) continue // nor with any dug one
       // The whole tunnel must stay underground, also where the ground dips between its ends.
       const line = [from, ...via, end]
+      // Smooth the bends into a curve (what the ants walk and the view draws): a cave, not a zigzag.
+      const smooth = Curve3.CreateCatmullRomSpline(line, DIG_CURVE_STEPS, false).getPoints()
+      line.splice(0, line.length, ...smooth)
       let buried = true
       for (let seg = 1; seg < line.length && buried; seg++) {
         for (let k = 1; k <= 4 && buried; k++) {
@@ -553,7 +564,7 @@ export class Colony {
       // Vertical room counts more: the nest is as deep as it is wide, the territory much wider.
       const open = Math.min(...DIG_NETWORK.map((n) => Math.hypot(n.pos.x - x, (n.pos.y - y) * DIG_VERTICAL_ROOM, n.pos.z - z)))
       const far = (open + 0.15 * Math.hypot(x, z)) * Math.exp(-Math.abs(y) / DIG_DEPTH_SCALE) * (0.6 + 0.8 * Math.random())
-      if (!best || far > best.far) best = { pos: end, parent, room, far, via }
+      if (!best || far > best.far) best = { pos: end, parent, room, far, via: line.slice(1, -1) }
     }
     if (!best) return // no free ground this time: the front stays where it is
     DIG_NETWORK.push({ pos: best.pos, parent: best.parent, room: best.room, role: null, sleepers: 0, fill: 0, via: best.via })

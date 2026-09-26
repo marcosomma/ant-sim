@@ -1,8 +1,9 @@
 import { Color3, Matrix, Mesh, MeshBuilder, Quaternion, Scene, StandardMaterial, Vector3 } from '@babylonjs/core'
 
-import { FOUNDING, SEARCHING_RADIUS, TaskName, SYMBOL_SCALE, TASK_POSITIONS } from '../constants'
+import { FOUNDING, SEARCHING_RADIUS, SYMBOL_SCALE, TASK_POSITIONS, groundAt } from '../constants'
 import type { Colony } from '../model/colony'
-import { TASK_COLOR3 } from '../ui/palette'
+import { Focus, TASK_COLOR3 } from '../ui/palette'
+import { QUEEN_ROOM_RADIUS, QUEEN_SQUASH, ROOM_SQUASH, groundTilt } from './nestShape'
 
 // The underground anthill as real rooms, each showing what is in it:
 //   the queen's (founding) chamber — the queen, and the little brood and food it holds;
@@ -12,16 +13,14 @@ import { TASK_COLOR3 } from '../ui/palette'
 // Everything underground is drawn clearly (no see-through ground over it, which made rooms,
 // tunnels and the ground melt into one haze): each room is a closed shell, its upper half solid
 // in the room's colour (by role) and its lower half 40% see-through, so what is in it shows;
-// tunnels are thin cords the ants move along like beads. It is all
+// tunnels are thin cords along the smoothly curving tunnels, ants move along them like beads.
+// It is all
 // shown only in the underground view; the surface view shows nothing of it (see
 // setUnderground). Visual only: reads the colony, never writes it.
 
 const R = SEARCHING_RADIUS
 const S = SYMBOL_SCALE
-const ROOM_RADIUS = 0.32 * R
-const QUEEN_SQUASH = 0.8
-const ROOM_SQUASH = 0.6
-const TUNNEL_RADIUS = 0.3 * S
+const ROOM_RADIUS = QUEEN_ROOM_RADIUS
 const MAX_SEEDS = 80
 const MAX_BROOD = 90
 
@@ -48,11 +47,20 @@ const plain = (scene: Scene, name: string, color: Color3, emissive = 0.3): Stand
   return m
 }
 
-/** Solid earth, tinted `k` of the way towards `tint`; both sides drawn (we look into bowls). */
+/** Solid earth, tinted `k` of the way towards `tint`; both sides drawn and lit (seen from inside too). */
 export const bowlMaterial = (scene: Scene, name: string, tint: Color3, k: number): StandardMaterial => {
   const m = plain(scene, name, Color3.Lerp(EARTH, tint, k), 0.3)
   m.backFaceCulling = false
+  m.twoSidedLighting = true
   return m
+}
+
+/** Tunnels in the overview: thin cords along the (smoothly curving) tunnel, ants move along them like beads. */
+export const TUNNEL_CORD = 0.3 * S
+export const cordTube = (scene: Scene, name: string, path: Vector3[]): Mesh => {
+  const tube = MeshBuilder.CreateTube(name, { path, radius: TUNNEL_CORD, tessellation: 6 }, scene)
+  tube.isPickable = false
+  return tube
 }
 
 /** An open bowl (the lower half of a sphere): `radius` wide, `squash` of that deep, rim at `at`. */
@@ -137,6 +145,8 @@ export class NestView {
       this.glassMats[k] = glassOf(this.roomMats[k])
     })
     this.tunnelMat = plain(scene, 'tunnel', new Color3(0.4, 0.3, 0.2), 0.3)
+    this.tunnelMat.backFaceCulling = false
+    this.tunnelMat.twoSidedLighting = true
     this.exitMat = plain(scene, 'exit', new Color3(0.36, 0.26, 0.17), 0.15)
 
     const queenShell = roomShell(scene, 'room:queen', TASK_POSITIONS.QueenCare, ROOM_RADIUS, QUEEN_SQUASH)
@@ -223,13 +233,8 @@ export class NestView {
         this.ceilings.push(null)
         continue
       }
-      const tunnel = MeshBuilder.CreateTube(
-        `dig:tunnel:${i}`,
-        { path: [net[node.parent].pos, ...node.via, node.pos], radius: TUNNEL_RADIUS, tessellation: 6 },
-        this.scene,
-      )
+      const tunnel = cordTube(this.scene, `dig:tunnel:${i}`, [net[node.parent].pos, ...node.via, node.pos])
       tunnel.material = this.tunnelMat
-      tunnel.isPickable = false
       tunnel.setEnabled(this.under)
       this.tunnels.push(tunnel)
       const shell = roomShell(this.scene, `dig:chamber:${i}`, node.pos, node.room, ROOM_SQUASH)
@@ -253,19 +258,19 @@ export class NestView {
       const i = this.exitCount++
       const exit = colony.exits[i]
       const tip = net[exit.node].pos
-      const shaft = MeshBuilder.CreateTube(`exit:shaft:${i}`, { path: [tip, exit.surface], radius: TUNNEL_RADIUS, tessellation: 6 }, this.scene)
+      const shaft = cordTube(this.scene, `exit:shaft:${i}`, [tip, exit.surface])
       shaft.material = this.tunnelMat
-      shaft.isPickable = false
       shaft.setEnabled(this.under)
       this.exitShafts.push(shaft)
       const rim = MeshBuilder.CreateTorus(`exit:rim:${i}`, { diameter: 5 * S, thickness: 1.6 * S, tessellation: 20 }, this.scene)
       rim.position.set(exit.surface.x, exit.surface.y + 0.2 * S, exit.surface.z)
       rim.scaling.y = 0.45
+      rim.rotationQuaternion = groundTilt(groundAt, exit.surface.x, exit.surface.z, 3 * S)
       rim.material = this.exitMat
       rim.isPickable = false
       const hole = MeshBuilder.CreateDisc(`exit:hole:${i}`, { radius: 1.6 * S, tessellation: 16 }, this.scene)
-      hole.rotation.x = Math.PI / 2
       hole.position.set(exit.surface.x, exit.surface.y + 0.25 * S, exit.surface.z)
+      hole.rotationQuaternion = groundTilt(groundAt, exit.surface.x, exit.surface.z, 3 * S).multiply(Quaternion.RotationAxis(Vector3.Right(), Math.PI / 2))
       hole.material = plain(this.scene, `exit:hole:${i}`, new Color3(0.08, 0.06, 0.04), 0)
       hole.isPickable = false
       this.exitRims.push(rim)
@@ -278,8 +283,8 @@ export class NestView {
   }
 
   /** What belongs to a task underground, for the task highlight. */
-  glowMeshes(task: TaskName): Mesh[] {
-    const rooms = (role: 'brood' | 'store'): Mesh[] =>
+  glowMeshes(task: Focus): Mesh[] {
+    const rooms = (role: 'brood' | 'store' | 'sleep'): Mesh[] =>
       this.colony.digNetwork.flatMap((n, i) =>
         n.role === role ? [this.galleries[i], this.ceilings[i]].filter((m): m is Mesh => m !== null && m !== undefined) : [],
       )
@@ -291,6 +296,8 @@ export class NestView {
         return [...enabled(this.brood), ...rooms('brood'), ...(FOUNDING.brood > 0 ? [this.queenRoom] : [])]
       case 'Store':
         return [...enabled(this.seeds), ...rooms('store'), ...(FOUNDING.store > 0 ? [this.queenRoom] : [])]
+      case 'Sleep':
+        return rooms('sleep')
       case 'Expansion': {
         const front = this.colony.digNetwork.flatMap((n, i) =>
           n.role === null && this.isFront(n.pos) ? [this.galleries[i], this.ceilings[i]].filter((m): m is Mesh => !!m) : [],

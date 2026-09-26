@@ -1,10 +1,8 @@
 import {
   AbstractMesh,
-  ActionManager,
   ArcRotateCamera,
   Color3,
   DynamicTexture,
-  ExecuteCodeAction,
   HighlightLayer,
   Matrix,
   Mesh,
@@ -48,24 +46,24 @@ import {
   SITE_RADIUS_MAX,
   SYMBOL_SCALE,
   WORLD_SCALE,
-  SLEEP_CHAMBER_RADIUS,
   SLEEP_POSITION,
   TASK_POSITIONS,
   TaskName,
 } from '../constants'
 import type { Colony } from '../model/colony'
-import { NestView, SLEEP_TINT, bowlMaterial, glassOf, roomShell } from './nestView'
+import { NestView, SLEEP_TINT, bowlMaterial, cordTube, glassOf, roomShell } from './nestView'
+import { NEST_ENTRANCE, NEST_PROFILE, SLEEP_ROOM_RADIUS, SLEEP_SQUASH, groundTilt, moundHeightAt } from './nestShape'
 
 export type NestLayer = 'surface' | 'underground'
 /** Tasks done underground: highlighting one shows the underground view. */
-const UNDERGROUND_TASKS: TaskName[] = ['QueenCare', 'EggLarvePupeaCare', 'Store', 'Expansion']
+const UNDERGROUND_TASKS: Focus[] = ['QueenCare', 'EggLarvePupeaCare', 'Store', 'Expansion', 'Sleep']
 const UNDERGROUND_SKY = new Color3(0.07, 0.05, 0.035)
 /** The solid soil, toned like the old half-see-through one over the dark background. */
 const SOIL_TONE = 0.62
 /** Height of the protected band's edge kerbs: below an ant's size (1 unit for workers). */
 const BAND_KERB_HEIGHT = 0.6
 import { MAX_LEVEL, SiteMarker, buildSiteMarker } from './siteMarkers'
-import { TASK_COLOR3, TASK_ORDER } from '../ui/palette'
+import { FOCUS_COLOR3, Focus, TASK_COLOR3, TASK_ORDER } from '../ui/palette'
 
 // Visual layer only: reads model state, never writes it. No text in 3D — the HUD is the
 // legend. What the scene shows:
@@ -77,8 +75,6 @@ const S = SYMBOL_SCALE
 const GROUND_SIZE = 520 * S
 const BASE_RADIUS = 340 * S
 const WHEEL_PRECISION_AT_BASE = 1
-const MARKER_HEIGHT = 30 * S // camera target when flying to a site
-const FOCUS_RADIUS = 90 * S
 /** Underground bowl at zero expansion: wide and deep enough for every chamber. */
 const BOWL_BASE_RADIUS = 2 * SEARCHING_RADIUS
 const BASE_DIAMETER = 12 * S
@@ -199,23 +195,6 @@ const material = (scene: Scene, name: string, color: Color3, alpha = 1, emissive
   return mat
 }
 
-// Cylinder of height 1 whose origin sits at its bottom face, so scaling.y grows it upwards.
-const bottomPivotCylinder = (name: string, diameter: number, scene: Scene): Mesh => {
-  const mesh = MeshBuilder.CreateCylinder(name, { height: 1, diameter, tessellation: 24 }, scene)
-  mesh.bakeTransformIntoVertices(Matrix.Translation(0, 0.5, 0))
-  mesh.isPickable = false
-  return mesh
-}
-
-// Orient a unit-height, bottom-pivot cylinder so it spans from `a` to `b`.
-const span = (mesh: Mesh, a: Vector3, b: Vector3): void => {
-  const dir = b.subtract(a)
-  mesh.position.copyFrom(a)
-  mesh.rotationQuaternion = mesh.rotationQuaternion ?? new Quaternion()
-  Quaternion.FromUnitVectorsToRef(Vector3.Up(), dir.normalizeToNew(), mesh.rotationQuaternion)
-  mesh.scaling.y = dir.length()
-}
-
 const pos3 = (v: Vector3): Vector3 => v
 
 export class ColonyView {
@@ -227,11 +206,11 @@ export class ColonyView {
   private rings: Effect[] = []
   private pings: Effect[] = []
   private pingBudget = PINGS_PER_SECOND
-  private highlighted: TaskName | null = null
+  private highlighted: Focus | null = null
   /** Glow outline, in the task's colour, around everything that belongs to the selected task. */
   private glow!: HighlightLayer
   private glowing = new Set<Mesh>()
-  private glowTask: TaskName | null = null
+  private glowTask: Focus | null = null
   private foodViews: FoodSpotView[] = []
   private perimeter!: TransformNode
   private perimeterMat!: StandardMaterial
@@ -264,6 +243,7 @@ export class ColonyView {
   private sleepChamber: Mesh | null = null
   /** Built underground parts drawn here (shaft, queen's tunnel, sleep chamber); the rest is NestView. */
   private interior: Mesh[] = []
+  private sleepShell: Mesh[] = []
   private rocks: Mesh[] = []
   private trailOverlay: Mesh | null = null
   /**
@@ -309,6 +289,11 @@ export class ColonyView {
     }
     this.sites.Collect.road.setEnabled(false)
     this.createEffectPools()
+    // Nothing in the 3D view can be picked or selected (clicks don't fly the camera anywhere):
+    // the HUD is where you select; the scene only shows.
+    scene.skipPointerMovePicking = true
+    scene.skipPointerDownPicking = true
+    scene.skipPointerUpPicking = true
     this.glow = new HighlightLayer('task-glow', scene, { blurHorizontalSize: 0.8, blurVerticalSize: 0.8 })
     this.glow.innerGlow = false
 
@@ -487,9 +472,7 @@ export class ColonyView {
     // speckled with soil pellets, on a disc of cleared ground (harvester ants clear the ground
     // around their nest). Built at the base size and scaled with digging, like the dome was.
     const rb = NEST_BASE_DIAMETER / 2
-    const profile = [
-      [1.0, -0.05], [0.98, 0.02], [0.82, 0.12], [0.6, 0.26], [0.4, 0.38], [0.26, 0.44], [0.19, 0.44], [0.15, 0.38], [0.11, 0.32], [0, 0.32],
-    ].map(([r, y]) => new Vector3(r * rb, y * rb, 0))
+    const profile = NEST_PROFILE.map(([r, y]) => new Vector3(r * rb, y * rb, 0))
     const nest = MeshBuilder.CreateLathe('nest', { shape: profile, tessellation: 40, sideOrientation: Mesh.DOUBLESIDE }, this.scene)
     // Grainy soil: every vertex a little lighter or darker (deterministic).
     const np = nest.getVerticesData(VertexBuffer.PositionKind)!
@@ -503,7 +486,7 @@ export class ColonyView {
     this.nest = nest
     nest.material = material(this.scene, 'nest', new Color3(0.55, 0.42, 0.3), 1, 0.25)
     nest.isPickable = false
-    const entrance = MeshBuilder.CreateDisc('nest:entrance', { radius: 0.13 * rb, tessellation: 20 }, this.scene)
+    const entrance = MeshBuilder.CreateDisc('nest:entrance', { radius: NEST_ENTRANCE * rb, tessellation: 20 }, this.scene)
     entrance.rotation.x = Math.PI / 2
     entrance.position.y = 0.33 * rb
     entrance.material = material(this.scene, 'nest:entrance', new Color3(0.05, 0.035, 0.02), 1, 0)
@@ -542,16 +525,17 @@ export class ColonyView {
     // The tunnel system ants walk: a vertical shaft from the nest down to the sleep chamber, and a
     // horizontal branch from the shaft to each chamber at its own depth.
     const tunnelMat = material(this.scene, 'nest:tunnel', new Color3(0.4, 0.3, 0.2), 1, 0.3)
-    const tunnel = bottomPivotCylinder('nest:tunnel', 0.8 * S, this.scene)
+    tunnelMat.backFaceCulling = false
+    tunnelMat.twoSidedLighting = true
+    // The entrance shaft: from the top of the mound down to the sleep chamber.
+    const tunnel = cordTube(this.scene, 'nest:tunnel', [new Vector3(0, moundHeightAt(0, 1), 0), SLEEP_POSITION])
     this.interior.push(tunnel)
-    span(tunnel, SLEEP_POSITION, Vector3.Zero())
     tunnel.material = tunnelMat
     INTERIOR_TASKS.forEach((task) => {
       const chamber = TASK_POSITIONS[task]
       // The digging front, the store rooms and the nursery are dug rooms: drawn with the network.
       if (task !== 'QueenCare') return
-      const branch = bottomPivotCylinder(`nest:tunnel:${task}`, 0.6 * S, this.scene)
-      span(branch, new Vector3(0, chamber.y, 0), chamber)
+      const branch = cordTube(this.scene, `nest:tunnel:${task}`, [new Vector3(0, chamber.y, 0), chamber])
       branch.material = tunnelMat
       this.interior.push(branch)
     })
@@ -559,12 +543,13 @@ export class ColonyView {
     this.nestView = new NestView(this.scene, this.colony)
 
     // The sleep chamber: a room shell like every room, in the sleepers' blue.
-    const shell = roomShell(this.scene, 'sleep-chamber', SLEEP_POSITION, SLEEP_CHAMBER_RADIUS + 2 * S, 0.8)
+    const shell = roomShell(this.scene, 'sleep-chamber', SLEEP_POSITION, SLEEP_ROOM_RADIUS, SLEEP_SQUASH)
     this.sleepChamber = shell.floor
     this.chamberMat = bowlMaterial(this.scene, 'sleep-chamber', SLEEP_TINT, 0.4)
     shell.ceiling.material = this.chamberMat
     shell.floor.material = glassOf(this.chamberMat)
     this.interior.push(shell.floor, shell.ceiling)
+    this.sleepShell = [shell.floor, shell.ceiling]
 
     // TRIAL: the nest's real 3D volume is underground: a faint bowl under the dome holding the
     // chambers and the sleep chamber. It widens with expansion, like the fence on the surface.
@@ -605,12 +590,7 @@ export class ColonyView {
     const roadMat = material(scene, `site:${task}:road`, color, 0.2, 0.6)
     road.material = roadMat
 
-    base.actionManager = new ActionManager(scene)
-    base.actionManager.registerAction(
-      new ExecuteCodeAction(ActionManager.OnPickTrigger, () =>
-        this.focus(pos.add(new Vector3(0, MARKER_HEIGHT / 2, 0)), FOCUS_RADIUS),
-      ),
-    )
+    base.isPickable = false
 
     this.sites[task] = { root, marker, level: 0, road, roadMat, known: AUTODISCOVERING ? 0 : 1 }
   }
@@ -677,7 +657,7 @@ export class ColonyView {
     this.spawn(this.pings, at, TASK_COLOR3[other.data.behaviour.actualTask.type], 0.6, 1.6, PING_LIFE_S, 0.95)
   }
 
-  highlight(task: TaskName | null): void {
+  highlight(task: Focus | null): void {
     this.highlighted = task
     this.updateView()
     this.refresh()
@@ -701,7 +681,8 @@ export class ColonyView {
 
   /** Underground if chosen, if the camera is below the ground, or an underground task is highlighted. */
   private updateView(): void {
-    const below = this.camera.position.y < groundAt(this.camera.position.x, this.camera.position.z)
+    const eye = this.camera.globalPosition
+    const below = eye.y < groundAt(eye.x, eye.z) - 0.2
     const task = this.highlighted
     const want: NestLayer =
       this.viewChoice === 'underground' || below || (task !== null && UNDERGROUND_TASKS.includes(task)) ? 'underground' : 'surface'
@@ -725,7 +706,7 @@ export class ColonyView {
   }
 
   /** Everything (besides its ants) that belongs to a task: rooms, sites, markers, what is carried. */
-  private glowMeshes(task: TaskName): Mesh[] {
+  private glowMeshes(task: Focus): Mesh[] {
     const meshes = (node: TransformNode | Mesh | null | undefined): Mesh[] =>
       !node ? [] : [...(node instanceof Mesh ? [node] : []), ...node.getChildMeshes().filter((m): m is Mesh => m instanceof Mesh)]
     const carried = (t: TaskName): Mesh[] =>
@@ -745,6 +726,8 @@ export class ColonyView {
         return meshes(this.perimeter)
       case 'Expansion':
         return [...meshes(this.sites.Expansion.root), ...this.nestView.glowMeshes(task)]
+      case 'Sleep':
+        return [...this.sleepShell, ...this.nestView.glowMeshes(task)]
       default:
         return this.nestView.glowMeshes(task)
     }
@@ -766,7 +749,7 @@ export class ColonyView {
       }
     })
     if (!task) return
-    const color = TASK_COLOR3[task]
+    const color = FOCUS_COLOR3(task)
     want.forEach((m) => {
       if (!this.glowing.has(m)) {
         this.glow.addMesh(m, color)
@@ -1105,11 +1088,12 @@ export class ColonyView {
     // and dead nestmates, the same pieces cleaners carry) that grows with what is dumped and
     // shrinks as it rots.
     const midden = TASK_POSITIONS.Cleaning
-    const middenBase = (this.middenBase = groundRing(this.scene, 'midden:ring', MIDDEN_RADIUS * 0.9, TASK_COLOR3.Cleaning))
-    middenBase.position.addInPlace(midden)
     const heap = new Mesh('midden:heap', this.scene)
     heap.position.copyFrom(midden)
+    heap.rotationQuaternion = groundTilt(groundAt, midden.x, midden.z, MIDDEN_RADIUS * 0.7)
     this.middenHeap = heap
+    const middenBase = (this.middenBase = groundRing(this.scene, 'midden:ring', MIDDEN_RADIUS * 0.9, TASK_COLOR3.Cleaning))
+    middenBase.parent = heap
     kinds.forEach(([kind]) => {
       const piece = this.debrisMeshes[kind].clone(`midden:${kind}`)
       piece.setEnabled(true)
@@ -1251,6 +1235,7 @@ export class ColonyView {
     const color = TASK_COLOR3.Collect
     const root = new TransformNode(`food:${spot.id}`, scene)
     root.position.copyFrom(spot.position)
+    root.rotationQuaternion = groundTilt(groundAt, spot.position.x, spot.position.z, FOOD_SPOT_RADIUS * 0.7)
 
     // A food spot is a group of fallen leaves inside a ring in the Collect colour. Built at
     // full size (FOOD_SPOT_RADIUS) and scaled by how big the find is; fewer leaves are left as
@@ -1262,11 +1247,7 @@ export class ColonyView {
     patch.position.y = 0.15 * S
     patch.parent = root
     patch.material = material(scene, `food:${spot.id}:patch`, color, 0.18, 0.4)
-    patch.isPickable = true
-    patch.actionManager = new ActionManager(scene)
-    patch.actionManager.registerAction(
-      new ExecuteCodeAction(ActionManager.OnPickTrigger, () => this.focus(spot.position.clone(), FOCUS_RADIUS)),
-    )
+    patch.isPickable = false
     const seeds = leafMesh(scene, `food:${spot.id}:leaves`, 5 * S)
     seeds.parent = root
     seeds.material = this.leafMat
@@ -1296,6 +1277,7 @@ export class ColonyView {
       if (view.epoch !== spot.epoch) {
         view.epoch = spot.epoch
         view.root.position.copyFrom(spot.position)
+        view.root.rotationQuaternion = groundTilt(groundAt, spot.position.x, spot.position.z, FOOD_SPOT_RADIUS * 0.7)
         this.setRoadWidth(view.road, spot.position, ROAD_MIN)
         view.scale = 0.01 // grows in from nothing, so a respawn reads as a new find
       }
@@ -1344,7 +1326,7 @@ export class ColonyView {
     } else {
       mat.emissiveColor.copyFrom(mat.diffuseColor).scaleInPlace(0.12 + 0.6 * ant.knowledgeShare())
     }
-    const visible = this.highlighted === null || this.highlighted === task
+    const visible = this.highlighted === null || this.highlighted === task || (this.highlighted === 'Sleep' && ant.isSleeping)
     // Each view shows its own ants: underground ones only underground, surface ones faint there.
     const below = isUnderground(mesh.position)
     const layer = this.shown === 'underground' ? (below ? 1 : 0.2) : below ? 0 : 1

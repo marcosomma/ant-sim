@@ -1066,3 +1066,10 @@
   outline: 1px dashed color-mix(in srgb, var(--season) 60%, transparent);
   outline-offset: -1px;
 }
+
+/* Sleep: not a task but a state every ant goes through; set a little apart from the tasks. */
+.hud-task--sleep {
+  margin-top: 4px;
+  padding-top: 6px;
+  border-top: 1px solid var(--rule);
+}

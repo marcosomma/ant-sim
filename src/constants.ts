@@ -333,7 +333,11 @@ export const DIG_DEPTH_SCALE = SEARCHING_RADIUS * 3
 /** Vertical distance counts this many times horizontal when looking for open ground to dig. */
 export const DIG_VERTICAL_ROOM = 2.5
 /** How far a tunnel wanders off the straight line, as a share of its length. */
-export const DIG_WANDER = 0.25
+export const DIG_WANDER = 0.12
+/** Bends along each tunnel (sideways only, see digNewTunnel): a gentle arc, not a maze. */
+export const DIG_BENDS = 1
+/** Points per bend when the tunnel is smoothed into a curve. */
+export const DIG_CURVE_STEPS = 6
 export interface DigNode {
   pos: Vector3
   /** Radius of the chamber dug at this tip (0 for the shaft root). */
@@ -431,7 +435,7 @@ export const EXIT_MAX_DEPTH = SEARCHING_RADIUS * 0.8
 /** An exit is used if the trip that way is at most this much longer than from the nest (ants go out near their goal). */
 export const EXIT_GAIN = 1.1
 /** A tip becomes an exit only if its tunnel route is at most this many times the straight line. */
-export const EXIT_MAX_WINDING = 1.5
+export const EXIT_MAX_WINDING = 2
 
 /** Waypoints from the nest, down the shaft and along the network, to node `i`. */
 export const digPathTo = (i: number): Vector3[] => {
