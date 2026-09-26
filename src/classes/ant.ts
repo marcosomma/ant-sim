@@ -26,6 +26,7 @@ import {
   AntType,
   AUTODISCOVERING,
   DISCOVER_ALONG_PATH,
+  SCOUTING,
   FOOD_NEWS_FRESH_MS,
   FOOD_SPOTS,
   FoodSpot,
@@ -184,12 +185,22 @@ export default class Ant {
     return lifeTime >= this.data.reproductionTime && this.data.reproductionOn && !this.data.cloned
   }
 
+  /**
+   * "Knows the whole map" (the white glow). Only counts things that are real places NOW:
+   *   - every task site, except Exploration while scouting (scouts roam, there is no site);
+   *   - food: a remembered spot that is still TRUE, i.e. not respawned since the ant learned
+   *     it (same epoch) and still holding food.
+   * The food test reads the world, not the ant's belief: the glow goes out the moment its
+   * spot is emptied, before the ant finds out, so outdated knowledge is visible.
+   */
   hadDiscoveredAllTargets(): boolean {
-    return (
-      (Object.keys(this.data.behaviour.discoveredPositions) as TaskName[]).filter(
-        (task) => this.data.behaviour.discoveredPositions[task] === false,
-      ).length === 0
+    const known = this.data.behaviour.discoveredPositions
+    const sitesKnown = (Object.keys(known) as TaskName[]).every(
+      (task) => task === 'Collect' || (SCOUTING && task === 'Exploration') || known[task],
     )
+    const m = this.foodMemory
+    const foodKnown = !!m && m.epoch === m.spot.epoch && m.spot.remaining > 0
+    return sitesKnown && foodKnown
   }
 
   isTargetGetDiscovered(): boolean {
@@ -198,6 +209,8 @@ export default class Ant {
     if (!pos) return false
     // Food is found through discoverFood(): there are several spots, not one site.
     if (taskType === 'Collect') return false
+    // Scouts don't look for "their" site; scout() notices everything instead.
+    if (taskType === 'Exploration' && SCOUTING) return false
     return (
       !this.data.behaviour.discoveredPositions[taskType] &&
       this.between(TASK_POSITIONS[taskType].x - pos.x, NEG_DISCOVERED_TARGET_MATCH, POS_DISCOVERED_TARGET_MATCH) &&
@@ -222,8 +235,13 @@ export default class Ant {
       this.data.behaviour.discoveredPositions[this.data.behaviour.actualTask.type] = true
     }
     this.discoverFood()
+    this.scout()
     const arrived = this.isArrivedTo('target')
     if (arrived) this.arriveAtFoodSpot()
+    // A scouting leg that reached its (random) point is scouting done: it counts as work.
+    if (arrived && SCOUTING && this.data.behaviour.actualTask.type === 'Exploration' && !this.isArrivedToNest()) {
+      this.data.behaviour.discoveredPositions.Exploration = true
+    }
     return arrived
   }
 
@@ -231,6 +249,8 @@ export default class Ant {
 
   /** Where to walk for `task`: a remembered food spot, a known site, or a random search point. */
   private targetFor(task: TaskName): Vector3 {
+    // Scouts have no site to go to: exploring IS the job, so they roam the territory.
+    if (task === 'Exploration' && SCOUTING) return getRandomTarget()
     if (task === 'Collect') {
       if (!this.foodMemory && !AUTODISCOVERING && FOOD_SPOTS.length > 0) {
         this.rememberFood(FOOD_SPOTS[Math.floor(Math.random() * FOOD_SPOTS.length)])
@@ -257,11 +277,21 @@ export default class Ant {
     return this.knownEmpty.get(memory.spot) === memory.epoch
   }
 
-  /** Saw it (or was told it is) empty: forget it and remember that it is dead. */
-  markEmpty(memory: NonNullable<Ant['foodMemory']>): void {
+  /**
+   * Saw it (or was told it is) empty: forget it and remember that it is dead. If the ant is
+   * on its way there, it turns back: its destination was fixed at the nest, so forgetting
+   * alone let it walk all the way to the empty spot (32–34% of food trips were wasted so).
+   */
+  markEmpty(memory: NonNullable<Ant['foodMemory']>, turnBack = true): void {
     this.knownEmpty.set(memory.spot, memory.epoch)
     if (this.foodMemory && this.foodMemory.spot === memory.spot && this.foodMemory.epoch === memory.epoch) {
       this.forgetFood()
+    }
+    const headingThere = !!this.data.target && Vector3.Distance(this.data.target, memory.at) < 1
+    if (turnBack && headingThere && !this.isSleeping) {
+      this.setTarget = this.data.nest ?? Vector3.Zero()
+      // stop() fires the walk's end callback, which re-plans towards the new target.
+      this.data.animation?.stop()
     }
   }
 
@@ -273,6 +303,34 @@ export default class Ant {
   forgetFood(): void {
     this.foodMemory = null
     this.data.behaviour.discoveredPositions.Collect = false
+  }
+
+  /**
+   * Scouting: an Exploration ant notices EVERY site and food spot it passes (same ±window as
+   * any discovery), and carries the news home. It keeps its freshest food sighting, so
+   * what it recruits collectors to is what it saw most recently.
+   */
+  private scout(): void {
+    if (!SCOUTING || this.data.behaviour.actualTask.type !== 'Exploration') return
+    const pos = this.data.body.position
+    const known = this.data.behaviour.discoveredPositions
+    ;(Object.keys(TASK_POSITIONS) as TaskName[]).forEach((t) => {
+      if (t === 'Collect' || known[t]) return
+      const site = TASK_POSITIONS[t]
+      if (
+        this.between(site.x - pos.x, NEG_DISCOVERED_TARGET_MATCH, POS_DISCOVERED_TARGET_MATCH) &&
+        this.between(site.z - pos.z, NEG_DISCOVERED_TARGET_MATCH, POS_DISCOVERED_TARGET_MATCH)
+      ) {
+        known[t] = true
+      }
+    })
+    const spot = foodSpotNear(pos)
+    if (spot && (!this.foodMemory || this.foodMemory.spot !== spot || this.foodMemory.epoch !== spot.epoch)) {
+      this.knownEmpty.delete(spot)
+      this.rememberFood(spot)
+    } else if (spot && this.foodMemory) {
+      this.foodMemory.confirmedAt = simNow()
+    }
   }
 
   /** A collector with no spot in mind notices any spot with food it comes close to. */
@@ -289,14 +347,14 @@ export default class Ant {
     if (Vector3.Distance(this.data.target, memory.at) > 1) return // this leg was not to the spot
     const stillThere = memory.spot.epoch === memory.epoch && memory.spot.remaining > 0
     if (!stillThere) {
-      this.markEmpty(memory)
+      this.markEmpty(memory, false)
       this.discoverFood() // the respawned spot may happen to be close by
       return
     }
     this.carried += this.forage?.(memory.spot) ?? 0
     memory.confirmedAt = simNow()
     // This trip took the last of it: the ant saw it go, so it stops recruiting to it.
-    if (memory.spot.epoch !== memory.epoch) this.markEmpty(memory)
+    if (memory.spot.epoch !== memory.epoch) this.markEmpty(memory, false)
   }
 
   /** Hand over what was carried home; called by the Colony on the nest visit. */
@@ -564,7 +622,10 @@ export default class Ant {
       if (DISCOVER_ALONG_PATH && this.isTargetGetDiscovered()) {
         this.data.behaviour.discoveredPositions[this.data.behaviour.actualTask.type] = true
       }
-      if (DISCOVER_ALONG_PATH) this.discoverFood()
+      if (DISCOVER_ALONG_PATH) {
+        this.discoverFood()
+        this.scout()
+      }
       list.forEach((element) => {
         if (!element.data || element.isSleeping) return
         if ((this.data.body as AbstractMesh).intersectsMesh(element.data.body as AbstractMesh, true)) {
@@ -584,6 +645,14 @@ export default class Ant {
 
   setInfluence(encounteredAnt: Ant): void {
     if (SWITCH_MODEL === 'threshold') this.recordEncounter(encounteredAnt)
+    // Dead-spot news travels between ANY two ants, whatever their tasks: whoever has seen a
+    // spot empty corrects whoever still believes in it, and an ant on its way turns back.
+    if (encounteredAnt.foodMemory && this.knowsIsEmpty(encounteredAnt.foodMemory)) {
+      encounteredAnt.markEmpty(encounteredAnt.foodMemory)
+    }
+    if (this.foodMemory && encounteredAnt.knowsIsEmpty(this.foodMemory)) {
+      this.markEmpty(this.foodMemory)
+    }
     const encounteredAntBehaviour = encounteredAnt.data.behaviour
     if (TASKS[this.data.type].indexOf(encounteredAntBehaviour.actualTask.type) === -1) return
 
@@ -593,13 +662,6 @@ export default class Ant {
     const otherTask = encounteredAntBehaviour.actualTask.type
 
     let shared = false
-    // Dead-spot news first: whoever has seen a spot empty corrects whoever still believes in it.
-    if (encounteredAnt.foodMemory && this.knowsIsEmpty(encounteredAnt.foodMemory)) {
-      encounteredAnt.markEmpty(encounteredAnt.foodMemory)
-    }
-    if (this.foodMemory && encounteredAnt.knowsIsEmpty(this.foodMemory)) {
-      this.markEmpty(this.foodMemory)
-    }
     // Food knowledge is a specific spot, so it is passed on as a memory, not a flag.
     if (myTask === 'Collect') {
       if (!this.foodMemory && encounteredAnt.foodMemory && encounteredAnt.hasFreshFoodNews()) {

@@ -39,6 +39,7 @@ import {
   NEED_ACTUAL_FLOOR,
   NEED_HALF_LIFE_MIN,
   TASK_INFLUENCE,
+  FOOD_AVAILABILITY,
   FOOD_SPOTS,
   FoodSpot,
   INCREASE_MAIN_TASK,
@@ -128,6 +129,8 @@ export class Colony {
   /** What is left in the current food spot, and what it held when it appeared. */
   /** Food spots on the ground (the live registry in constants). */
   readonly foodSpots = FOOD_SPOTS
+  /** Environment richness (see FOOD_AVAILABILITY). Change it live with setFoodAvailability. */
+  foodAvailability = FOOD_AVAILABILITY
   private nextSpotId = 0
   /** Spots exhausted so far, purely for the HUD. */
   foodSitesDepleted = 0
@@ -341,10 +344,20 @@ export class Colony {
   }
 
   /** Keep the number of spots in line with the size of the foraging area. */
+  /** How rich the environment is from now on. Richer takes effect at once; poorer as spots run out. */
+  setFoodAvailability(value: number): void {
+    this.foodAvailability = Math.max(0.05, value)
+    this.ensureFoodSpots()
+  }
+
+  private rollSpotAmount(): number {
+    return rollFoodAmount() * this.foodAvailability
+  }
+
   private ensureFoodSpots(): void {
-    const target = foodSpotTarget(this.foodReach)
+    const target = foodSpotTarget(this.foodReach, this.foodAvailability)
     while (FOOD_SPOTS.length < target) {
-      const amount = rollFoodAmount()
+      const amount = this.rollSpotAmount()
       FOOD_SPOTS.push({ id: this.nextSpotId++, epoch: 0, position: this.placeFood(), remaining: amount, initial: amount })
     }
   }
@@ -356,8 +369,18 @@ export class Colony {
    * The position is mutated in place (the view follows the object); ants hold copies.
    */
   private respawnFoodSpot(spot: FoodSpot): void {
+    // A poorer environment than the ground currently shows: this spot is not replaced.
+    // Its epoch still changes, so every memory of it goes stale like any emptied spot.
+    if (FOOD_SPOTS.length > foodSpotTarget(this.foodReach, this.foodAvailability)) {
+      spot.epoch++
+      spot.remaining = 0
+      FOOD_SPOTS.splice(FOOD_SPOTS.indexOf(spot), 1)
+      this.foodSitesDepleted++
+      this.events.foodSiteMoved?.(spot.position, 0)
+      return
+    }
     spot.position.copyFrom(this.placeFood(spot))
-    spot.initial = rollFoodAmount()
+    spot.initial = this.rollSpotAmount()
     spot.remaining = spot.initial
     spot.epoch++
     this.foodSitesDepleted++

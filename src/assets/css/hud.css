@@ -353,64 +353,6 @@
   }
 }
 
-/* --- Speed control (stays visible when the panel is collapsed) ---------- */
-.hud-speed {
-  display: grid;
-  grid-template-columns: 28px 1fr 56px;
-  align-items: center;
-  gap: 10px;
-  padding: 0 14px 12px;
-}
-
-.hud-play {
-  width: 28px;
-  height: 28px;
-  border: 0;
-  border-radius: 6px;
-  background: var(--surface-raised);
-  color: var(--text-primary);
-  cursor: pointer;
-  font-size: 11px;
-}
-
-/* Icons drawn in CSS: the ❚❚ glyph is missing from Roboto and renders as a box. */
-.hud-play::before {
-  content: '';
-  display: block;
-  width: 3px;
-  height: 10px;
-  margin: 0 auto;
-  border-left: 3px solid currentColor;
-  border-right: 3px solid currentColor;
-  box-sizing: content-box;
-}
-
-.hud-play.is-paused::before {
-  width: 0;
-  height: 0;
-  margin-left: calc(50% - 3px);
-  border-style: solid;
-  border-width: 6px 0 6px 10px;
-  border-color: transparent transparent transparent currentColor;
-}
-
-.hud-play:hover,
-.hud-play:focus-visible {
-  background: var(--track);
-}
-
-.hud-slider {
-  width: 100%;
-  margin: 0;
-  accent-color: var(--neutral-fill);
-  cursor: pointer;
-}
-
-.hud-speed-value {
-  text-align: right;
-  font-weight: 500;
-}
-
 .hud-tip * {
   font-family: inherit;
 }
@@ -563,4 +505,430 @@
 .hud-task.is-pinned {
   background: var(--surface-raised);
   box-shadow: inset 3px 0 0 var(--task);
+}
+
+/* Sound toggle, next to the collapse button in the Anthill header. */
+.hud-sound {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  margin-left: auto;
+  margin-right: 2px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.hud-sound:hover,
+.hud-sound:focus-visible {
+  background: var(--surface-raised);
+  color: var(--text-primary);
+}
+
+.hud-sound.is-on {
+  color: var(--text-primary);
+}
+
+.hud-sound .hud-sound-waves,
+.hud-sound.is-on .hud-sound-mute {
+  display: none;
+}
+
+.hud-sound.is-on .hud-sound-waves {
+  display: inline;
+}
+
+/* --- Controls bar: everything settable, bottom centre --------------------- */
+/* Leave room for it: the report panels never run down into the bar. */
+.hud {
+  max-height: calc(100vh - 104px);
+}
+
+.hud.controls {
+  top: auto;
+  right: auto;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: auto;
+  max-width: calc(100vw - 32px);
+  flex-direction: row;
+  align-items: center;
+  gap: 14px;
+  padding: 8px 12px;
+}
+
+.controls-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.controls-group .hud-slider {
+  width: 150px;
+}
+
+.controls-label {
+  color: var(--text-secondary);
+}
+
+.controls-value {
+  min-width: 48px;
+  font-weight: 500;
+  text-align: left;
+}
+
+.controls-value--wide {
+  min-width: 64px;
+}
+
+.controls-rule {
+  align-self: stretch;
+  width: 1px;
+  background: var(--rule);
+}
+
+.hud-play {
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--surface-raised);
+  color: var(--text-primary);
+  cursor: pointer;
+  font-size: 11px;
+}
+
+/* Icons drawn in CSS: the ❚❚ glyph is missing from Roboto and renders as a box. */
+.hud-play::before {
+  content: '';
+  display: block;
+  width: 3px;
+  height: 10px;
+  margin: 0 auto;
+  border-left: 3px solid currentColor;
+  border-right: 3px solid currentColor;
+  box-sizing: content-box;
+}
+
+.hud-play.is-paused::before {
+  width: 0;
+  height: 0;
+  margin-left: calc(50% - 3px);
+  border-style: solid;
+  border-width: 6px 0 6px 10px;
+  border-color: transparent transparent transparent currentColor;
+}
+
+.hud-play:hover,
+.hud-play:focus-visible {
+  background: var(--track);
+}
+
+.hud-slider {
+  margin: 0;
+  accent-color: var(--neutral-fill);
+  cursor: pointer;
+}
+
+.hud-sound {
+  margin: 0;
+}
+
+/* Phones: the bar spans the bottom edge and wraps; Anthill sits above it. */
+@media (max-width: 640px) {
+  .hud.controls {
+    left: 16px;
+    right: 16px;
+    transform: none;
+    flex-wrap: wrap;
+    justify-content: space-between;
+  }
+
+  .controls-rule {
+    display: none;
+  }
+
+  .controls-group .hud-slider {
+    width: 110px;
+  }
+}
+
+@media (max-width: 480px) {
+  .hud:not(.about):not(.controls) {
+    bottom: 104px;
+    max-height: 45vh;
+  }
+}
+
+/* --- Stat tiles: 2 per row, label + value, mini bar, one-line detail ----- */
+.hud-tiles {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px 16px;
+}
+
+.hud-tile {
+  min-width: 0;
+}
+
+.hud-tile-top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.hud-tile-label {
+  color: var(--text-secondary);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.hud-tile-value {
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.hud-tile-detail {
+  margin-top: 3px;
+  color: var(--text-muted);
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.hud-tile.is-empty .hud-tile-value {
+  color: #ffffff;
+}
+
+/* Signed bar centred on zero (Growth): right = growing, left = shrinking. */
+.hud-meter--diverge {
+  position: relative;
+  overflow: visible;
+}
+
+.hud-meter--diverge .hud-meter-fill {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  border-radius: 0 3px 3px 0;
+  transition:
+    left 240ms linear,
+    width 240ms linear;
+}
+
+.hud-meter--diverge .hud-meter-fill.is-negative {
+  border-radius: 3px 0 0 3px;
+  background: var(--text-muted);
+}
+
+.hud-meter-mid {
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  left: calc(50% - 1px);
+  width: 2px;
+  background: var(--text-secondary);
+}
+
+/* Tighter task rows: same columns, less air. */
+.hud-task {
+  padding: 3px 4px;
+}
+
+.hud-task-head {
+  margin-bottom: 2px;
+}
+
+.hud-section {
+  padding: 8px 0;
+}
+
+/* --- Notifications: colony turning points, bottom-right ------------------- */
+.hud-toasts {
+  position: fixed;
+  right: 16px;
+  bottom: 84px; /* above the Controls bar */
+  z-index: 12;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.hud-toast {
+  display: grid;
+  grid-template-columns: 10px 1fr auto;
+  align-items: center;
+  gap: 10px;
+  width: min(300px, calc(100vw - 32px));
+  padding: 9px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  background: rgba(18, 18, 18, 0.9);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  color: #ffffff;
+  font: 400 12px/1.35 'Roboto', system-ui, sans-serif;
+  pointer-events: auto;
+  cursor: pointer;
+  animation: hud-toast-in 220ms ease-out;
+}
+
+.hud-toast * {
+  font-family: inherit;
+}
+
+.hud-toast.is-leaving {
+  opacity: 0;
+  transform: translateY(6px);
+  transition:
+    opacity 220ms,
+    transform 220ms;
+}
+
+.hud-toast-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--toast);
+}
+
+.hud-toast-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.hud-toast-text strong {
+  font-weight: 500;
+}
+
+.hud-toast-text span {
+  color: #8a8980;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* Piles: repeats of a kind stack like a small deck, edges peeking out below. */
+.hud-toast[data-pile='2'] {
+  box-shadow:
+    0 5px 0 -2px #1c1c1b,
+    0 5px 0 -1px rgba(255, 255, 255, 0.08);
+  margin-bottom: 5px;
+}
+
+.hud-toast[data-pile='3'] {
+  box-shadow:
+    0 5px 0 -2px #1c1c1b,
+    0 5px 0 -1px rgba(255, 255, 255, 0.08),
+    0 10px 0 -4px #161615,
+    0 10px 0 -3px rgba(255, 255, 255, 0.06);
+  margin-bottom: 10px;
+}
+
+.hud-toast.is-bumped {
+  animation: hud-toast-bump 260ms ease-out;
+}
+
+@keyframes hud-toast-bump {
+  40% {
+    transform: translateY(-3px);
+  }
+}
+
+/* Births / deaths: "+1" / "−1" floating up and fading, just above the cards. */
+.hud-pulses {
+  position: relative;
+  width: min(300px, calc(100vw - 32px));
+  height: 22px;
+  pointer-events: none;
+}
+
+.hud-pulse {
+  position: absolute;
+  bottom: 0;
+  font: 700 14px/1 'Roboto', system-ui, sans-serif;
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+  animation: hud-pulse-float 900ms ease-out forwards;
+}
+
+/* Green up / red down, on top of the +/− sign so the meaning never rests on colour alone.
+   Brighter than the Store green and Cleaning red of the task palette, so they don't read as tasks. */
+.hud-pulse.is-up {
+  right: 6px;
+  color: #3fd26b;
+}
+
+.hud-pulse.is-down {
+  right: 48px;
+  color: #ff5c5c;
+}
+
+@keyframes hud-pulse-float {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  20% {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-16px);
+  }
+}
+
+@keyframes hud-toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+@media (max-width: 640px) {
+  .hud-toasts {
+    right: 16px;
+    left: 16px;
+    bottom: auto;
+    top: 76px; /* under the About header */
+    align-items: stretch;
+  }
+
+  .hud-toast {
+    width: auto;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hud-toast,
+  .hud-toast.is-bumped {
+    animation: none;
+  }
+
+  .hud-pulse {
+    animation-duration: 1200ms;
+    animation-name: hud-pulse-fade;
+  }
+}
+
+@keyframes hud-pulse-fade {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
 }

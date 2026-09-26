@@ -1,5 +1,6 @@
 import {
   AbstractMesh,
+  LinesMesh,
   ActionManager,
   ArcRotateCamera,
   Color3,
@@ -23,6 +24,7 @@ import {
   FOOD_SITE_MIN,
   FoodSpot,
   NEST_BASE_DIAMETER,
+  SCOUTING,
   SITE_RADIUS_MAX,
   SYMBOL_SCALE,
   WORLD_SCALE,
@@ -129,6 +131,9 @@ export class ColonyView {
   private highlighted: TaskName | null = null
   private foodViews: FoodSpotView[] = []
   private perimeter!: TransformNode
+  private perimeterRing!: LinesMesh
+  /** Eased scouting supply shown by the perimeter's brightness. */
+  private scoutLevel = 0
 
   constructor(
     private scene: Scene,
@@ -141,6 +146,12 @@ export class ColonyView {
     TASK_ORDER.forEach((task) => this.createSite(task))
     // Food lives in several spots (createFoodSpotView); the single Collect site is retired.
     this.sites.Collect.root.setEnabled(false)
+    // With scouting, nobody walks to an Exploration site: scouts cover the territory, so the
+    // territory circle itself is the Exploration gauge (see animate), not a beacon.
+    if (SCOUTING) {
+      this.sites.Exploration.root.setEnabled(false)
+      this.sites.Exploration.road.setEnabled(false)
+    }
     this.sites.Collect.road.setEnabled(false)
     this.createEffectPools()
 
@@ -193,8 +204,9 @@ export class ColonyView {
       { points, dashSize: 3, gapSize: 2, dashNb: SEGMENTS * 2 },
       this.scene,
     )
-    ring.color = new Color3(0.72, 0.7, 0.62)
+    ring.color = SCOUTING ? TASK_COLOR3.Exploration.clone() : new Color3(0.72, 0.7, 0.62)
     ring.alpha = 0.55
+    this.perimeterRing = ring
     ring.isPickable = false
     ring.parent = node
     node.scaling.setAll(SITE_RADIUS_MAX * this.colony.foodReach)
@@ -385,6 +397,7 @@ export class ColonyView {
     const territory = SITE_RADIUS_MAX * this.colony.foodReach
     const r = this.perimeter.scaling.x + (territory - this.perimeter.scaling.x) * 0.05
     this.perimeter.scaling.set(r, 1, r)
+    if (SCOUTING) this.paintPerimeter()
 
     // Digging widens the dome. Eased rather than snapped so growth reads as growth.
     const nestScale = this.colony.nestDiameter / NEST_BASE_DIAMETER
@@ -406,7 +419,7 @@ export class ColonyView {
     // Under-served tanks breathe so the eye finds them without reading anything.
     const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 260)
     TASK_ORDER.forEach((task) => {
-      if (task === 'Collect') return
+      if (task === 'Collect' || (SCOUTING && task === 'Exploration')) return
       const site = this.sites[task]
       const { need, actual } = this.colony.needs[task]
       const supply = need > 0 ? actual / need : MAX_LEVEL
@@ -473,7 +486,7 @@ export class ColonyView {
     this.refreshFoodSpots(total)
 
     TASK_ORDER.forEach((task) => {
-      if (task === 'Collect') return
+      if (task === 'Collect' || (SCOUTING && task === 'Exploration')) return
       const site = this.sites[task]
       site.known = AUTODISCOVERING ? knownBy[task] / total : 1
       const share = onTask[task] / total
@@ -483,12 +496,32 @@ export class ColonyView {
       // Undiscovered sites are ghosts with no road: they exist, but no ant knows the way yet.
       const fade = (dim ? 0.15 : 1) * (discovered ? 1 : 0.3)
       site.root.getChildMeshes().forEach((m) => (m.visibility = fade))
-      site.road.setEnabled(discovered)
+      // Scouts roam the territory rather than walking to the beacon, so it gets no road.
+      site.road.setEnabled(discovered && !(SCOUTING && task === 'Exploration'))
       const width = ROAD_MIN + (ROAD_MAX - ROAD_MIN) * Math.sqrt(share)
       site.road.scaling.x = width
       site.road.scaling.z = width
       site.roadMat.alpha = (0.12 + 0.6 * Math.sqrt(share)) * (dim ? 0.15 : 1)
     })
+  }
+
+  /**
+   * Scouting gauge: the territory circle, in the Exploration colour, is as bright as scouting
+   * keeps up with its need (actual ÷ need), and breathes when it is badly under-served.
+   * Same reading rule as every site: brighter/fuller = better supplied.
+   */
+  private paintPerimeter(): void {
+    const { need, actual } = this.colony.needs.Exploration
+    const supply = need > 0 ? Math.min(MAX_LEVEL, actual / need) : MAX_LEVEL
+    this.scoutLevel += (supply - this.scoutLevel) * 0.1
+    const level = this.scoutLevel / MAX_LEVEL
+    const starving = supply < 0.25
+    const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 260)
+    const dim = this.highlighted !== null && this.highlighted !== 'Exploration'
+    const lit = this.highlighted === 'Exploration'
+    const base = 0.15 + 0.75 * level
+    this.perimeterRing.alpha = (starving ? base * (0.5 + 0.5 * pulse) : base) * (dim ? 0.25 : 1)
+    this.perimeterRing.color.copyFrom(TASK_COLOR3.Exploration).scaleInPlace(lit ? 1.4 : 1)
   }
 
   // --- food spots ------------------------------------------------------------
@@ -521,8 +554,16 @@ export class ColonyView {
 
   /** New spots appear as the foraging area grows; a respawned spot moves (new epoch). */
   private syncFoodSpots(): void {
-    this.colony.foodSpots.forEach((spot, i) => {
-      const view = this.foodViews[i]
+    // Spots can disappear (a poorer environment does not replace emptied ones): drop their views.
+    const alive = new Set(this.colony.foodSpots)
+    this.foodViews = this.foodViews.filter((v) => {
+      if (alive.has(v.spot)) return true
+      v.root.dispose()
+      v.road.dispose()
+      return false
+    })
+    this.colony.foodSpots.forEach((spot) => {
+      const view = this.foodViews.find((v) => v.spot === spot)
       if (!view) {
         this.foodViews.push(this.createFoodSpotView(spot))
         return

@@ -10,6 +10,8 @@ import { Colony } from '../src/model/colony'
 
 const minutes = Number(process.argv[2] ?? 60)
 const speed = Number(process.argv[3] ?? 16)
+// Optional 3rd argument: food availability (e.g. 0.5 scarce, 2 abundant).
+const availability = process.argv[4] !== undefined ? Number(process.argv[4]) : undefined
 const FRAME_MS = 16
 
 // The model still has debug console.log calls in hot paths; keep the output readable.
@@ -30,9 +32,10 @@ setSpeed(speed)
 scene.onBeforeRenderObservable.add(() => advance(FRAME_MS))
 
 const colony = new Colony(scene, camera)
+if (availability !== undefined) colony.foodAvailability = availability
 colony.start()
 
-out(`CHECK_TIME_INTERVAL=${(CHECK_TIME_INTERVAL / 1e3).toFixed(1)}s  speed=${speed}×  minutes=${minutes}`)
+out(`CHECK_TIME_INTERVAL=${(CHECK_TIME_INTERVAL / 1e3).toFixed(1)}s  speed=${speed}×  minutes=${minutes}  food=×${colony.foodAvailability}`)
 out('min   alive  asleep  collect  knowC  spots known  empt  range  exp  in/m  eat/m  food   reserve  lay/m  limit  born  died  starved  gen')
 let nextReport = 60e3
 const started = Date.now()

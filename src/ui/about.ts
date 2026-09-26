@@ -29,20 +29,22 @@ const SECTIONS: Section[] = [
     body: `<ul>
       <li><b>Nest</b>: the dome at the centre. The <b>sleep chamber</b> sits below it, joined by a tunnel.</li>
       <li><b>Task sites</b>: each task has its own shape on a base in its colour: a <b>palisade</b> (protection),
-        a <b>beacon</b> (exploration), the <b>queen's chamber</b>, a cluster of <b>eggs</b> (brood care), a
+        the <b>queen's chamber</b>, a cluster of <b>eggs</b> (brood care), a
         <b>silo</b> (store), <b>soil heaps</b> (expansion) and a stack of <b>swept stones</b> (cleaning).
         One rule for all of them: the fuller or taller the shape, the better the task is supplied
         (actual ÷ need). A shape that <i>breathes</i> is badly under-served.</li>
       ${AUTODISCOVERING ? '<li><b>Faded sites</b> are undiscovered: they exist, but no ant knows the way yet, so there is no road.</li>' : ''}
       <li><b>Roads</b> run from the nest to each known site. Thicker and brighter means more ants on that task.</li>
-      <li><b>Ants</b> take their task's colour. A white glow means the ant knows every site, and dimmed ants are asleep.</li>
+      <li><b>Ants</b> take their task's colour. A <b>white glow</b> means the ant knows every site and a food spot that really still has food. The glow goes out as soon as its spot is emptied, even before the ant finds out. Dimmed ants are asleep.</li>
       <li><b>Rings</b> from the nest: work delivered (in that task's colour) or a birth (white).
         <b>White spark</b>: two ants met and one taught the other where a site is. <b>Grey spark</b>: a death.</li>
       <li><b>Small rings</b> (only while a task is pinned): an encounter between one of its ants and another
         ant, coloured by the other ant's task.</li>
-      <li>The <b>dashed circle</b> is the colony's foraging territory, where food spots appear. Digging
-        (expansion) widens it: the easy food nearby gets used up, so new food turns up further out. The
-        <b>Nest expansion</b> bar measures the same thing.</li>
+      <li>The <b>dashed circle</b> is the colony's territory, where food spots appear. Its <b>size</b> is
+        expansion: digging widens it, because the easy food nearby is used up and new food turns up further
+        out (the <b>Nest expansion</b> bar measures the same). Its <b>brightness</b> is scouting:
+        exploration has no site, since scouts roam the whole territory, so the circle is its gauge. Bright
+        means scouting keeps up, faint means it lags, and breathing means badly under-served.</li>
       <li><b>Food</b> lies in several <b>spots</b> (mounds, sized by what is left), each with its own road.
         More spots appear as digging widens the foraging area. An emptied spot reappears elsewhere.</li>
     </ul>`,
@@ -98,11 +100,14 @@ const SECTIONS: Section[] = [
         ${pct(EXPLORATION_COVERAGE)} of it, so no site is ever out of reach.</li>`
           : '<li>Ants are born knowing where every site is.</li>'
       }
+      <li><b>Scouts</b> (the Exploration task) roam random points in the territory, notice every site and
+        food spot they pass, and pass the news on to the ants who need it.</li>
       <li>When two ants meet, each can teach the other where its own task's site is. Knowledge spreads through
         the colony by encounters, with no map and no leader.</li>
       <li>Collectors remember <b>one food spot</b> each and pass it on to collectors they meet. When a spot is
-        emptied, nobody is told: its users walk to the old place, find nothing, and have to search again. The
-        rest of the colony keeps foraging its own spots.</li>
+        emptied, nobody announces it: the ant that finds it empty spreads the news to every ant it meets,
+        and an ant on its way there that hears it turns back. The rest of the colony keeps foraging its own
+        spots.</li>
     </ul>`,
   },
   {
@@ -126,9 +131,20 @@ const SECTIONS: Section[] = [
     id: 'controls',
     title: 'Controls',
     body: `<ul>
+      <li><b>Food</b> (Controls bar): how rich the ground is, from barren to abundant. It
+        scales how many food spots there are and how much each new one holds. Change it while the colony runs:
+        abundance shows up at once, scarcity sets in as spots run out, the way a dry season would.</li>
       <li>Speed slider: pause to 16×. <kbd>Space</kbd> pauses, <kbd>[</kbd> <kbd>]</kbd> step slower / faster.
         Everything (timers, lifespans, movement) follows the same clock.</li>
       <li>Drag to orbit, scroll to zoom. Click a site's base to fly to it, and <kbd>H</kbd> returns to the nest.</li>
+      <li>All settings live in the <b>Controls</b> bar at the bottom; the Anthill panel only reports.</li>
+      <li>The <b>speaker</b> in the Controls bar turns on quiet cues for turning points you might not be looking
+        at: a food spot running out (falling note), a new food spot found (rising note), the store running
+        low or empty (low tones) and recovering, and a new generation (a bell). Births and deaths make tiny ticks (high) and tocks (low), so you can hear whether the colony is growing. Off by default.</li>
+      <li>The same turning points also pop up as small <b>notifications</b> in the bottom-right corner,
+        with sound on or off, piling up when the same thing repeats. They last about 20 seconds of sim time
+        (shorter at high speed) and freeze while paused; click one to dismiss it. Above them, each birth
+        floats up as <b>+1</b> and each death as <b>−1</b>.</li>
       <li>Hover a task in the Anthill panel to preview it in 3D. <b>Click</b> it to pin it: its ants stay
         singled out and every encounter they have flashes as a small ring, in the colour of the ant they met.
         That is the raw signal each ant uses to judge how busy each job is. Click again (or <kbd>Esc</kbd>) to

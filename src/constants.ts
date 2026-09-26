@@ -104,6 +104,12 @@ export const POS_TARGET_MATCH = 0.5
 // With DISCOVER_ALONG_PATH it notices its task's site whenever it passes within the same
 // window, so a leg sweeps a corridor instead of testing one point.
 export const DISCOVER_ALONG_PATH = true
+/**
+ * Exploration is the scouting job: scouts roam random points in the territory, notice every
+ * site and food spot they pass, and pass the news on to the ants who need it. Without it,
+ * nobody's job was to find things: every ant that didn't know its own site searched blind.
+ */
+export const SCOUTING = true
 export const NEG_DISCOVERED_TARGET_MATCH = -20
 export const POS_DISCOVERED_TARGET_MATCH = 20
 export const SEARCHING_RADIUS = WORLD_SCALE / 10
@@ -324,9 +330,26 @@ export interface FoodSpot {
 
 export const FOOD_SPOTS_AT_BASE_REACH = 3
 export const FOOD_SPOTS_MAX = 12
-/** Spots the ground should hold for a given spawn reach (1 = starting radius). */
-export const foodSpotTarget = (reach: number): number =>
-  Math.min(FOOD_SPOTS_MAX, Math.max(1, Math.round(FOOD_SPOTS_AT_BASE_REACH * reach * reach)))
+
+// ---------------------------------------------------------------------------
+// Environment: how rich the ground is
+// ---------------------------------------------------------------------------
+// One multiplier for the environment the colony lives in. It scales both how MANY spots the
+// ground holds (density) and how MUCH food each new spot holds. Settable live from the HUD:
+// richer shows up at once (new spots appear, new spots are bigger); poorer sets in as it
+// would in nature: food already on the ground stays, but emptied spots are not replaced
+// until the count matches the new level.
+export const FOOD_AVAILABILITY = 1
+export const FOOD_AVAILABILITY_STEPS = [0.25, 0.5, 0.75, 1, 1.5, 2, 3] as const
+/** Performance ceiling on spots even in the richest environment. */
+export const FOOD_SPOTS_HARD_MAX = 30
+
+/** Spots the ground should hold for a given spawn reach (1 = starting radius) and richness. */
+export const foodSpotTarget = (reach: number, availability = 1): number =>
+  Math.min(
+    Math.min(FOOD_SPOTS_HARD_MAX, Math.round(FOOD_SPOTS_MAX * Math.max(1, availability))),
+    Math.max(1, Math.round(FOOD_SPOTS_AT_BASE_REACH * reach * reach * availability)),
+  )
 
 /**
  * Only fresh news recruits. A memory records when food was last SEEN at the spot (by this

@@ -1,6 +1,11 @@
 import type Ant from '../classes/ant'
-import { SPEED_STEPS, getSpeed, onSpeedChange, setSpeed } from '../commons/simClock'
-import { AUTODISCOVERING, EGG_FOOD_COST, POPULATION_CAP, QUEEN_EGGS_PER_MIN_MAX, TaskName } from '../constants'
+import {
+  AUTODISCOVERING,
+  EGG_FOOD_COST,
+  POPULATION_CAP,
+  QUEEN_EGGS_PER_MIN_MAX,
+  TaskName,
+} from '../constants'
 import type { Colony, LayLimit } from '../model/colony'
 import { TASK_HEX, TASK_LABEL, TASK_ORDER } from './palette'
 import '../assets/css/hud.css'
@@ -30,7 +35,6 @@ interface Row {
   sleep: HTMLElement
   demand: HTMLElement
   known: HTMLElement
-  seg: HTMLElement
 }
 
 interface TaskSnapshot {
@@ -44,6 +48,28 @@ const h = <K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, text?: s
   if (cls) el.className = cls
   if (text !== undefined) el.textContent = text
   return el
+}
+
+/** Compact stat tile: label + value on one line, a mini bar, and a one-line detail. */
+interface Tile {
+  el: HTMLElement
+  value: HTMLElement
+  fill: HTMLElement
+  detail: HTMLElement
+}
+
+const tile = (label: string, diverging = false): Tile => {
+  const el = h('div', 'hud-tile')
+  const top = h('div', 'hud-tile-top')
+  const value = h('span', 'hud-tile-value')
+  top.append(h('span', 'hud-tile-label', label), value)
+  const track = h('div', diverging ? 'hud-meter hud-meter--diverge' : 'hud-meter')
+  const fill = h('div', 'hud-meter-fill')
+  track.append(fill)
+  if (diverging) track.append(h('span', 'hud-meter-mid'))
+  const detail = h('div', 'hud-tile-detail')
+  el.append(top, track, detail)
+  return { el, value, fill, detail }
 }
 
 const meter = (label: string): { el: HTMLElement; fill: HTMLElement; value: HTMLElement } => {
@@ -90,89 +116,29 @@ export const createHud = (src: HudSource): void => {
   }
   header.append(h('h1', 'hud-title', 'Anthill'), toggle)
 
-  // --- Speed ----------------------------------------------------------------
-  const speedRow = h('div', 'hud-speed')
-  const play = h('button', 'hud-play')
-  play.type = 'button'
-  const slider = h('input', 'hud-slider')
-  slider.type = 'range'
-  slider.min = '0'
-  slider.max = `${SPEED_STEPS.length - 1}`
-  slider.step = '1'
-  slider.setAttribute('aria-label', 'Simulation speed')
-  const speedValue = h('output', 'hud-speed-value')
-  speedRow.append(play, slider, speedValue)
-
-  const oneX = SPEED_STEPS.indexOf(1)
-  let lastRunningStep = oneX
-  const stepOf = (speed: number): number => {
-    const i = SPEED_STEPS.findIndex((v) => v === speed)
-    return i === -1 ? oneX : i
-  }
-  const setStep = (i: number): void => setSpeed(SPEED_STEPS[Math.max(0, Math.min(SPEED_STEPS.length - 1, i))])
-  const togglePause = (): void => setStep(getSpeed() === 0 ? lastRunningStep : 0)
-
-  slider.addEventListener('input', () => setStep(Number(slider.value)))
-  play.onclick = togglePause
-  onSpeedChange((speed) => {
-    const i = stepOf(speed)
-    if (speed > 0) lastRunningStep = i
-    slider.value = `${i}`
-    const paused = speed === 0
-    speedValue.textContent = paused ? 'Paused' : `${speed}×`
-    play.classList.toggle('is-paused', paused)
-    play.setAttribute('aria-label', paused ? 'Resume' : 'Pause')
-    play.title = `${paused ? 'Resume' : 'Pause'} (Space) · slower/faster: [ ]`
-    slider.setAttribute('aria-valuetext', speedValue.textContent)
-  })
-
-  window.addEventListener('keydown', (e) => {
-    if (e.target instanceof HTMLInputElement && e.target !== slider) return
-    // Let focused controls (About sections, buttons, links) keep their own Space/Enter.
-    if (e.target instanceof HTMLElement && e.target.closest('summary, button, a')) return
-    if (e.code === 'Space') {
-      e.preventDefault()
-      togglePause()
-    } else if (e.key === '[') {
-      setStep(stepOf(getSpeed()) - 1)
-    } else if (e.key === ']') {
-      setStep(stepOf(getSpeed()) + 1)
-    }
-  })
-
   const body = h('div', 'hud-body')
 
-  // --- Colony -------------------------------------------------------------
+  // --- Colony (2×2 tiles) ----------------------------------------------------
   const colony = h('section', 'hud-section')
-  const population = meter('Population')
-  const asleepMeter = meter('Asleep')
-  const active = meter('Reached nest')
-  const knowledge = meter('Map known')
-  // Births and deaths per minute on one shared scale, so the longer bar wins at a glance.
-  // (Was "Died" as a share of everyone ever born, which always creeps to 100%.)
-  const bornRate = meter('Born / min')
-  const diedRate = meter('Died / min')
-  const generation = h('div', 'hud-stat')
-  const generationValue = h('span', 'hud-stat-value hud-stat-value--big')
-  const generationSpan = h('span', 'hud-stat-note')
-  generation.append(h('span', 'hud-stat-label', 'Generation'), generationSpan, generationValue)
-  colony.append(population.el, asleepMeter.el, active.el)
-  if (AUTODISCOVERING) colony.append(knowledge.el)
-  colony.append(bornRate.el, diedRate.el, generation)
+  const population = tile('Population')
+  // Births and deaths as ONE signed rate: bar centred on zero, left = shrinking.
+  const growth = tile('Growth', true)
+  const asleepTile = tile('Asleep')
+  const knowledge = tile('Map known')
+  const colonyTiles = h('div', 'hud-tiles')
+  colonyTiles.append(population.el, growth.el, asleepTile.el)
+  if (AUTODISCOVERING) colonyTiles.append(knowledge.el)
+  colony.append(colonyTiles)
 
-  // --- Food & queen -----------------------------------------------------------
+  // --- Food & queen (2×2 tiles) ------------------------------------------------
   const economy = h('section', 'hud-section')
-  const reserve = meter('Food reserve')
-  const spots = meter('Food spots')
-  const expansion = meter('Nest expansion')
-  const laying = meter('Egg laying')
-  const layNote = h('p', 'hud-note hud-note--tight')
-  economy.append(h('h2', 'hud-heading', 'Food & queen'), reserve.el, spots.el, expansion.el, laying.el, layNote)
-
-  // --- Allocation (stacked) -------------------------------------------------
-  const allocation = h('section', 'hud-section')
-  const stack = h('div', 'hud-stack')
-  allocation.append(h('h2', 'hud-heading', 'Workforce allocation'), stack)
+  const reserve = tile('Reserve')
+  const queen = tile('Queen')
+  const spots = tile('Food spots')
+  const territory = tile('Territory')
+  const economyTiles = h('div', 'hud-tiles')
+  economyTiles.append(reserve.el, queen.el, spots.el, territory.el)
+  economy.append(h('h2', 'hud-heading', 'Food & queen'), economyTiles)
 
   // --- Per task -------------------------------------------------------------
   const tasks = h('section', 'hud-section')
@@ -246,15 +212,9 @@ export const createHud = (src: HudSource): void => {
     el.addEventListener('blur', leave)
     tasks.append(el)
 
-    const seg = h('span', 'hud-stack-seg')
-    seg.style.setProperty('--task', TASK_HEX[task])
-    stack.append(seg)
 
-    rows[task] = { el, count, work, sleep, demand, known, seg }
+    rows[task] = { el, count, work, sleep, demand, known }
   })
-  const asleepSeg = h('span', 'hud-stack-seg hud-stack-seg--asleep')
-  asleepSeg.style.setProperty('--task', '#5a5a55')
-  stack.append(asleepSeg)
 
   const legend = h(
     'p',
@@ -266,8 +226,8 @@ export const createHud = (src: HudSource): void => {
   const tip = h('div', 'hud-tip')
   tip.setAttribute('role', 'tooltip')
 
-  body.append(colony, economy, allocation, tasks)
-  root.append(header, speedRow, body)
+  body.append(colony, economy, tasks)
+  root.append(header, body)
   document.body.append(root, tip)
 
   // --- Live state -----------------------------------------------------------
@@ -342,61 +302,9 @@ export const createHud = (src: HudSource): void => {
     snapshot = takeSnapshot(ants)
 
     const sleeping = TASK_ORDER.reduce((acc, t) => acc + snapshot[t].asleep, 0)
-    const activeCount = colony.activeAnts
-    population.fill.style.width = pct(total / POPULATION_CAP)
-    population.value.textContent = `${total}`
-    population.el.title = `${total} alive · performance cap ${POPULATION_CAP} (the real limit is food)`
-    asleepMeter.fill.style.width = pct(total ? sleeping / total : 0)
-    asleepMeter.value.textContent = `${sleeping}`
-    active.fill.style.width = pct(total ? Math.min(activeCount / total, 1) : 0)
-    active.value.textContent = `${activeCount}`
-
-    const rateScale = Math.max(1, colony.birthsPerMin, colony.deathsPerMin)
-    bornRate.fill.style.width = pct(colony.birthsPerMin / rateScale)
-    bornRate.value.textContent = colony.birthsPerMin.toFixed(1)
-    bornRate.el.title = `${colony.births} born in total (3-minute average shown)`
-    diedRate.fill.style.width = pct(colony.deathsPerMin / rateScale)
-    diedRate.value.textContent = colony.deathsPerMin.toFixed(1)
-    const oldAge = colony.deaths - colony.diedOutside - colony.starved
-    diedRate.el.title =
-      `${colony.deaths} died in total: ${oldAge} old age, ${colony.diedOutside} outside the nest, ` +
-      `${colony.starved} starved (3-minute average shown)`
-
-    const reserveMin = colony.reserveMinutes
-    reserve.fill.style.width = pct(Math.min(1, reserveMin / RESERVE_FULL_MIN))
-    // With no ants the reserve is "infinite minutes"; show the bar empty rather than full.
     const extinct = total === 0
-    if (extinct) reserve.fill.style.width = '0%'
-    reserve.value.textContent = extinct ? '—' : colony.food <= 0 ? 'empty' : `${reserveMin.toFixed(1)}m`
-    reserve.el.classList.toggle('is-empty', !extinct && colony.food <= 0)
-    reserve.el.title =
-      `${colony.food.toFixed(0)} food · per minute: +${colony.intakePerMin.toFixed(0)} collected, ` +
-      `−${colony.consumptionPerMin.toFixed(0)} eaten, −${colony.spoilagePerMin.toFixed(1)} spoiled`
-    // Spots known out of spots on the ground; more appear as the foraging area grows.
-    const spotCount = colony.foodSpots.length
-    const spotsKnown = colony.foodSpotsKnown
-    spots.fill.style.width = pct(spotCount ? spotsKnown / spotCount : 0)
-    spots.value.textContent = `${spotsKnown}/${spotCount}`
-    spots.el.title = `${spotsKnown} of ${spotCount} food spots known by at least one ant · ${colony.foodSitesDepleted} emptied so far`
 
-    // Expansion (0..1, saturating) widens the dome and the foraging territory (dashed circle).
-    expansion.fill.style.width = pct(colony.expansionLevel)
-    expansion.value.textContent = `×${colony.foodReach.toFixed(1)}`
-    expansion.el.title =
-      `Expansion ${pct(colony.expansionLevel)} · foraging territory ×${colony.foodReach.toFixed(2)} ` +
-      `(the dashed circle) · nest ${colony.nestDiameter.toFixed(0)} wide`
-
-    // An egg costs food: with an empty store the queen is effectively not laying.
-    const layRate = extinct || colony.food < EGG_FOOD_COST ? 0 : colony.layRate
-    laying.fill.style.width = pct(layRate / QUEEN_EGGS_PER_MIN_MAX)
-    laying.value.textContent = `${layRate.toFixed(1)}/m`
-    layNote.textContent = extinct
-      ? 'Colony extinct'
-      : colony.food < EGG_FOOD_COST
-        ? 'Queen not laying: no food'
-        : `Queen ${LAY_LIMIT_NOTE[colony.layLimit]}`
-
-    // Newest generation born so far; the note shows which generations are alive.
+    // Population · generations alive · (reached nest in the tooltip: after start-up it equals population)
     let oldest = Infinity
     let newest = 0
     ants.forEach((a) => {
@@ -404,15 +312,74 @@ export const createHud = (src: HudSource): void => {
       newest = Math.max(newest, a.data.generation)
     })
     maxGeneration = Math.max(maxGeneration, newest)
-    generationValue.textContent = `${maxGeneration}`
-    generationSpan.textContent = total ? (oldest === newest ? `alive: ${oldest}` : `alive: ${oldest}–${newest}`) : 'extinct'
+    population.fill.style.width = pct(total / POPULATION_CAP)
+    population.value.textContent = `${total}`
+    population.detail.textContent = extinct
+      ? 'extinct'
+      : `gen ${maxGeneration} · alive ${oldest === newest ? oldest : `${oldest}–${newest}`}`
+    population.el.title =
+      `${total} alive (performance cap ${POPULATION_CAP}; the real limit is food) · ` +
+      `${colony.activeAnts} have reached the nest · generation = one mean lifespan`
+
+    // Growth: births − deaths per minute, one signed bar.
+    const net = colony.birthsPerMin - colony.deathsPerMin
+    const scale = Math.max(1, colony.birthsPerMin, colony.deathsPerMin)
+    const half = (Math.min(1, Math.abs(net) / scale) * 50).toFixed(1)
+    growth.fill.style.left = net >= 0 ? '50%' : `${50 - Number(half)}%`
+    growth.fill.style.width = `${half}%`
+    growth.fill.classList.toggle('is-negative', net < 0)
+    growth.value.textContent = `${net >= 0 ? '+' : '−'}${Math.abs(net).toFixed(1)}/m`
+    growth.detail.textContent = `${colony.birthsPerMin.toFixed(1)} born · ${colony.deathsPerMin.toFixed(1)} died`
+    const oldAge = colony.deaths - colony.diedOutside - colony.starved
+    growth.el.title =
+      `Per minute (3-min average): ${colony.birthsPerMin.toFixed(1)} born, ${colony.deathsPerMin.toFixed(1)} died. ` +
+      `In total: ${colony.births} born, ${colony.deaths} died (${oldAge} old age, ` +
+      `${colony.diedOutside} outside the nest, ${colony.starved} starved)`
+
+    asleepTile.fill.style.width = pct(total ? sleeping / total : 0)
+    asleepTile.value.textContent = `${sleeping}`
+    asleepTile.detail.textContent = `${pct(total ? sleeping / total : 0)} of the colony`
 
     if (AUTODISCOVERING) {
       const knownSum = TASK_ORDER.reduce((acc, t) => acc + snapshot[t].known, 0)
       const knownShare = total ? knownSum / (total * TASK_ORDER.length) : 0
       knowledge.fill.style.width = pct(knownShare)
       knowledge.value.textContent = pct(knownShare)
+      knowledge.detail.textContent = 'avg per ant'
     }
+
+    // Reserve: minutes of food at current consumption.
+    const reserveMin = colony.reserveMinutes
+    reserve.fill.style.width = extinct ? '0%' : pct(Math.min(1, reserveMin / RESERVE_FULL_MIN))
+    reserve.value.textContent = extinct ? '—' : colony.food <= 0 ? 'empty' : `${reserveMin.toFixed(1)}m`
+    reserve.el.classList.toggle('is-empty', !extinct && colony.food <= 0)
+    reserve.detail.textContent = `+${colony.intakePerMin.toFixed(0)} in · −${colony.consumptionPerMin.toFixed(0)} eaten /m`
+    reserve.el.title =
+      `${colony.food.toFixed(0)} food stored · per minute: +${colony.intakePerMin.toFixed(0)} collected, ` +
+      `−${colony.consumptionPerMin.toFixed(0)} eaten, −${colony.spoilagePerMin.toFixed(1)} spoiled`
+
+    // Queen: laying rate, and what limits it. An egg costs food, so an empty store means 0.
+    const layRate = extinct || colony.food < EGG_FOOD_COST ? 0 : colony.layRate
+    queen.fill.style.width = pct(layRate / QUEEN_EGGS_PER_MIN_MAX)
+    queen.value.textContent = `${layRate.toFixed(1)}/m`
+    queen.detail.textContent = extinct ? 'colony extinct' : colony.food < EGG_FOOD_COST ? 'not laying: no food' : LAY_LIMIT_NOTE[colony.layLimit]
+    queen.el.title = `Eggs per minute (max ${QUEEN_EGGS_PER_MIN_MAX}), limited by food reserve and queen care`
+
+    // Food spots known out of spots on the ground; more appear as the territory grows.
+    const spotCount = colony.foodSpots.length
+    const spotsKnown = colony.foodSpotsKnown
+    spots.fill.style.width = pct(spotCount ? spotsKnown / spotCount : 0)
+    spots.value.textContent = `${spotsKnown}/${spotCount}`
+    spots.detail.textContent = `known · ${colony.foodSitesDepleted} emptied`
+    spots.el.title = `${spotsKnown} of ${spotCount} food spots known by at least one ant · ${colony.foodSitesDepleted} emptied so far`
+
+    // Territory: expansion widens the dome and the foraging area (the dashed circle).
+    territory.fill.style.width = pct(colony.expansionLevel)
+    territory.value.textContent = `×${colony.foodReach.toFixed(1)}`
+    territory.detail.textContent = `expansion ${pct(colony.expansionLevel)}`
+    territory.el.title =
+      `Expansion ${pct(colony.expansionLevel)} · foraging territory ×${colony.foodReach.toFixed(2)} ` +
+      `(the dashed circle) · nest ${colony.nestDiameter.toFixed(0)} wide`
 
     const maxAnts = Math.max(1, ...TASK_ORDER.map((t) => snapshot[t].ants))
     TASK_ORDER.forEach((task) => {
@@ -432,15 +399,7 @@ export const createHud = (src: HudSource): void => {
       row.demand.classList.toggle('is-under', d > 0)
       row.el.classList.toggle('is-starved', d >= DEMAND_CLAMP)
       if (AUTODISCOVERING) row.known.style.width = pct(total ? s.known / total : 0)
-
-      const awakeOnTask = s.ants - s.asleep
-      row.seg.style.flexGrow = `${awakeOnTask}`
-      row.seg.hidden = awakeOnTask === 0
-      row.seg.title = `${TASK_LABEL[task]}: ${awakeOnTask} awake (${pct(total ? awakeOnTask / total : 0)})`
     })
-    asleepSeg.style.flexGrow = `${sleeping}`
-    asleepSeg.hidden = sleeping === 0
-    asleepSeg.title = `Asleep: ${sleeping} (${pct(total ? sleeping / total : 0)})`
 
     renderTip()
   }

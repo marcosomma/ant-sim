@@ -5,7 +5,9 @@ import { getNewCamera, getNewLight, getNewScene } from '../commons/helper'
 import { WORLD_SCALE } from '../constants'
 import { Colony } from '../model/colony'
 import { createAbout } from '../ui/about'
+import { createControls } from '../ui/controls'
 import { createHud } from '../ui/hud'
+import { createSound } from '../ui/sound'
 import { ColonyView } from './colonyView'
 
 const canvas = document.getElementById('renderCanvas') as HTMLCanvasElement
@@ -33,6 +35,7 @@ export const Create = (engine: Engine): Scene => {
 
   createHud({ colony, onHighlight: (task) => view.highlight(task) })
   createAbout()
+  createControls(colony, createSound(colony))
 
   return scene
 }
