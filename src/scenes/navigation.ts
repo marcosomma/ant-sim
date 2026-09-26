@@ -17,7 +17,7 @@ import { SLEEP_LABEL, TASK_LABEL } from '../ui/palette'
 // against the ants' positions. View only: never touches the model.
 
 /** Pan speed as a share of the camera's distance, per second. */
-const PAN = 0.7
+const PAN = 0.4
 /** How close (in world units, scaled by zoom) a click must come to an ant to pick it. */
 const PICK_RADIUS = 1.4
 
