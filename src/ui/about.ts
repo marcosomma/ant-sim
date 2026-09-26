@@ -128,12 +128,45 @@ const SECTIONS: Section[] = [
     </ul>`,
   },
   {
+    id: 'seasons',
+    title: 'Seasons',
+    body: `<p>With <b>Cycle</b> on (Controls bar) a year lasts 40 sim minutes, 10 per season, blending
+      smoothly from one to the next. Click a season to jump to it, or turn Cycle off to stay in it. Seasons change how the colony <i>lives</i>, not only how much food
+      there is:</p>
+      <ul>
+        <li><b>Spring</b>: food returns (×1.5), the queen lays more.</li>
+        <li><b>Summer</b>: food peaks (×2), stores spoil faster in the heat.</li>
+        <li><b>Autumn</b>: food thins (×0.75), laying slows, ants rest more.</li>
+        <li><b>Winter</b>: little food (×0.25), the queen nearly stops, ants eat far less and mostly rest in
+          the chamber. The colony lives off what it stored.</li>
+      </ul>
+      <p>The climate's baseline (<code>FOOD_AVAILABILITY</code>) is multiplied by the season: a rich
+        climate has mild winters, a poor one hard ones. The ground grid takes a faint seasonal tint, and each
+        new season pops up as a notification.</p>`,
+  },
+  {
+    id: 'brood',
+    title: 'Brood: from egg to worker',
+    body: `<ul>
+      <li>The queen lays <b>eggs</b>, not ants. Brood (egg → larva → pupa) develops for about a third of a
+        worker's life before a new worker emerges. That emergence is what "born" counts.</li>
+      <li>The need for <b>brood care</b> comes from the brood itself, so it follows the eggs laid: it booms
+        in spring and almost vanishes in winter.</li>
+      <li>Well-cared-for brood develops at full speed; neglected brood develops slowly and some of it
+        dies. Larvae also eat.</li>
+      <li>In famine the colony <b>eats its brood</b> before adults starve, getting part of the food back.
+        Real colonies do the same: brood is the colony's buffer.</li>
+      <li><i>Experimental:</i> <b>frozen ground</b>. In winter (and a little in late autumn) digging achieves
+        much less. You can see it as a faint frost on the ground and icy soil heaps.</li>
+    </ul>`,
+  },
+  {
     id: 'controls',
     title: 'Controls',
     body: `<ul>
-      <li><b>Food</b> (Controls bar): how rich the ground is, from barren to abundant. It
-        scales how many food spots there are and how much each new one holds. Change it while the colony runs:
-        abundance shows up at once, scarcity sets in as spots run out, the way a dry season would.</li>
+      <li><b>Season</b> (Controls bar): four points, Spring to Winter. Click one to set it. With
+        <b>Cycle</b> on, the year keeps turning from there; with it off, the colony stays in that season,
+        e.g. to watch a long winter.</li>
       <li>Speed slider: pause to 16×. <kbd>Space</kbd> pauses, <kbd>[</kbd> <kbd>]</kbd> step slower / faster.
         Everything (timers, lifespans, movement) follows the same clock.</li>
       <li>Drag to orbit, scroll to zoom. Click a site's base to fly to it, and <kbd>H</kbd> returns to the nest.</li>

@@ -932,3 +932,128 @@
     opacity: 0;
   }
 }
+
+/* Seasons toggle + progress through the current season. */
+.controls-toggle {
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font: inherit;
+}
+
+.controls-toggle.is-on {
+  background: var(--surface-raised);
+  color: var(--text-primary);
+}
+
+.controls-toggle:hover,
+.controls-toggle:focus-visible {
+  color: var(--text-primary);
+}
+
+.controls-season-track {
+  width: 48px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--track);
+  overflow: hidden;
+}
+
+.controls-season-track[hidden] {
+  display: none;
+}
+
+.controls-season-fill {
+  display: block;
+  height: 100%;
+  width: 0;
+  background: var(--neutral-fill);
+}
+
+/* Season selector: four fixed points + Cycle. */
+.controls-seasons {
+  gap: 4px;
+}
+
+.controls-season {
+  position: relative;
+  height: 28px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font: inherit;
+  overflow: hidden;
+}
+
+.controls-season:hover,
+.controls-season:focus-visible {
+  color: var(--text-primary);
+}
+
+.controls-season {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* The season in effect: tinted with its own colour. */
+.controls-season.is-current {
+  background: color-mix(in srgb, var(--season) 22%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--season) 45%, transparent);
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+/* How far into the season we are (cycling); full when held. */
+.controls-season-progress {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 3px;
+  width: 0;
+  background: var(--season);
+  transition: width 400ms linear;
+}
+
+/* "Live" dot: only on the current season, only while the year is turning. */
+.controls-season-live {
+  display: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--season);
+}
+
+.controls-seasons.is-cycling .controls-season.is-current .controls-season-live {
+  display: block;
+  animation: controls-live 1.6s ease-in-out infinite;
+}
+
+@keyframes controls-live {
+  50% {
+    opacity: 0.25;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .controls-seasons.is-cycling .controls-season.is-current .controls-season-live {
+    animation: none;
+  }
+}
+
+.controls-seasons .controls-toggle {
+  margin-left: 6px;
+}
+
+@media (max-width: 640px) {
+  .controls-season {
+    padding: 0 6px;
+  }
+}

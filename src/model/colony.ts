@@ -39,12 +39,29 @@ import {
   NEED_ACTUAL_FLOOR,
   NEED_HALF_LIFE_MIN,
   TASK_INFLUENCE,
+  BROOD_CANNIBALISM_PER_MIN,
+  BROOD_CANNIBALISM_RETURN,
+  BROOD_CARE_NEED_PER_MIN,
+  BROOD_DEV_MS,
+  BROOD_FOOD_PER_MIN,
+  BROOD_NEGLECT_DEATHS_PER_MIN,
+  EXPERIMENT_FROZEN_GROUND,
+  FROST_DIG_LOSS,
   FOOD_AVAILABILITY,
+  SEASONS,
+  SEASON_BLEND,
+  SEASON_MODE,
+  Season,
+  SeasonMode,
+  YEAR_MS,
+  setRestFactor,
   FOOD_SPOTS,
   FoodSpot,
   INCREASE_MAIN_TASK,
   foodSpotTarget,
-  placeInOctant,
+  SEARCHING_RADIUS,
+  SITE_RADIUS_MAX,
+  placeOnSurface,
   rollFoodAmount,
 } from '../constants'
 
@@ -57,6 +74,8 @@ export interface ColonyEvents {
   born?: () => void
   died?: (at: Vector3) => void
   knowledgeShared?: (at: Vector3) => void
+  /** A new season began (cycle mode). */
+  seasonChanged?: (name: Season['name']) => void
   /** A counted encounter, reported by `ant` (each side of a meeting reports it once). */
   encountered?: (ant: Ant, other: Ant) => void
   /** A food spot was exhausted and a new one appeared somewhere else. */
@@ -131,6 +150,20 @@ export class Colony {
   readonly foodSpots = FOOD_SPOTS
   /** Environment richness (see FOOD_AVAILABILITY). Change it live with setFoodAvailability. */
   foodAvailability = FOOD_AVAILABILITY
+  /** 'cycle' = seasons turn over time; 'hold' = stay in heldSeason. */
+  seasonMode: SeasonMode = SEASON_MODE
+  /** Season index kept while holding. */
+  heldSeason = 0
+  /** Current (blended) season factors. */
+  season: Omit<Season, 'name' | 'tint' | 'ground'> & {
+    name: Season['name'] | 'None'
+    progress: number
+    tint: [number, number, number]
+    ground: [number, number, number]
+  } = {
+    name: 'None', food: 1, eat: 1, lay: 1, rest: 1, spoil: 1, frost: 0, progress: 0, tint: [0.3, 0.3, 0.28], ground: [0.1, 0.1, 0.1],
+  }
+  private seasonStart = 0
   private nextSpotId = 0
   /** Spots exhausted so far, purely for the HUD. */
   foodSitesDepleted = 0
@@ -141,6 +174,13 @@ export class Colony {
   private expansionWork = 0
   private intakeThisTick = 0
   private eggProgress = 0
+  /** Brood in development: each item is 0..1 of the way to emerging as a worker. */
+  readonly brood: { progress: number }[] = []
+  broodEmerged = 0
+  broodDied = 0
+  broodEaten = 0
+  private broodDeathProgress = 0
+  private broodEatProgress = 0
   private births0 = 0
   private deaths0 = 0
   private starveProgress = 0
@@ -187,6 +227,8 @@ export class Colony {
   ) {}
 
   start(count = INITIAL_ANTS): void {
+    this.seasonStart = simNow()
+    this.updateSeason()
     this.ensureFoodSpots()
     for (let i = 0; i < count; i++) this.born()
     this.ants.forEach((ant) => this.startAnt(ant))
@@ -230,11 +272,13 @@ export class Colony {
       this.reachedNest.add(id)
       needs[previousTask].dedicated_ants--
       needs[task.type].dedicated_ants++
-      needs[previousTask].actual += addToPreviousTask
-      if (previousTask === 'Expansion') this.expansionWork += addToPreviousTask
+      // EXPERIMENTAL frozen ground: digging achieves less when the soil is frozen.
+      const work = previousTask === 'Expansion' ? addToPreviousTask * this.digFactor : addToPreviousTask
+      needs[previousTask].actual += work
+      if (previousTask === 'Expansion') this.expansionWork += work
       needs.Collect.need += 0.1
       needs.QueenCare.need += 0.05
-      needs.EggLarvePupeaCare.need += 0.05
+      // (Brood care no longer gets a bump per delivery: its need comes from the brood.)
 
       // Food: whatever the ant picked up at its spot arrives now (see forage below).
       if (previousTask === 'Collect') this.intakeThisTick += ant.dropCarried()
@@ -242,7 +286,7 @@ export class Colony {
       // Finishing work creates work elsewhere. Routed on `previousTask`, the task that was
       // actually just done, and scaled by how much of it was done, so the two halves of this
       // callback finally agree on which task they are talking about.
-      if (addToPreviousTask > 0) this.propagate(previousTask, addToPreviousTask)
+      if (work > 0) this.propagate(previousTask, work)
 
       this.updateUrgencies()
       ant.setNestNeeds = needs
@@ -289,7 +333,6 @@ export class Colony {
     needs.Store.need += type === 'P' ? 0.05 : 0.03
     needs.Cleaning.need += type === 'P' ? 0.05 : 0.03
     needs.QueenCare.need += type === 'P' ? 0.5 : 0.1
-    needs.EggLarvePupeaCare.need += type === 'P' ? 0.5 : 0.25
     this.ants.push(ant)
     return ant
   }
@@ -329,6 +372,21 @@ export class Colony {
 
   // --- food spots --------------------------------------------------------------
 
+  /**
+   * A new season: food nobody found has rotted, germinated or been taken by others. Spots no
+   * living ant knows are renewed for the new season (new place, new amount, or removed if the
+   * season holds fewer). Spots the colony knows stay: a patch being worked doesn't vanish.
+   */
+  private renewUnknownFoodSpots(): void {
+    const known = new Set<FoodSpot>()
+    this.ants.forEach((a) => {
+      const m = a.foodMemory
+      if (m && m.epoch === m.spot.epoch) known.add(m.spot)
+    })
+    ;[...FOOD_SPOTS].filter((spot) => !known.has(spot)).forEach((spot) => this.respawnFoodSpot(spot, true))
+    this.ensureFoodSpots()
+  }
+
   /** Everything already on the map that a new spot should keep its distance from. */
   private occupied(except?: FoodSpot): Vector3[] {
     return [
@@ -338,9 +396,9 @@ export class Colony {
   }
 
   /** A random direction, so spots surround the nest instead of sharing one octant. */
+  /** Food lies on the ground, anywhere in the territory (inside the perimeter fence). */
   private placeFood(except?: FoodSpot): Vector3 {
-    const sign = (): number => (Math.random() < 0.5 ? -1 : 1)
-    return placeInOctant([sign(), sign(), sign()], this.occupied(except), this.foodReach)
+    return placeOnSurface(this.occupied(except), 0.6 * SEARCHING_RADIUS * this.foodReach, SITE_RADIUS_MAX * this.foodReach)
   }
 
   /** Keep the number of spots in line with the size of the foraging area. */
@@ -350,12 +408,89 @@ export class Colony {
     this.ensureFoodSpots()
   }
 
+  /** Food richness actually in effect: the slider (climate baseline) × the season. */
+  get effectiveFood(): number {
+    return this.foodAvailability * this.season.food
+  }
+
+  /** Index of the season in effect now. */
+  get seasonIndex(): number {
+    return Math.max(0, SEASONS.findIndex((s) => s.name === this.season.name))
+  }
+
+  /**
+   * Cycle on: carry on turning from the current season. Cycle off: hold the current season
+   * with all its factors (food, eating, laying, rest) until told otherwise.
+   */
+  setSeasonMode(mode: SeasonMode): void {
+    const index = this.seasonIndex
+    this.seasonMode = mode
+    if (mode === 'hold') this.heldSeason = index
+    else this.seasonStart = simNow() - index * (YEAR_MS / SEASONS.length)
+    this.updateSeason()
+    this.ensureFoodSpots()
+  }
+
+  /** Jump to a season: cycling carries on from its start; holding stays in it. */
+  setSeason(index: number): void {
+    const i = ((index % SEASONS.length) + SEASONS.length) % SEASONS.length
+    if (this.seasonMode === 'hold') this.heldSeason = i
+    else this.seasonStart = simNow() - i * (YEAR_MS / SEASONS.length)
+    this.updateSeason()
+    this.ensureFoodSpots()
+  }
+
+  /** Blend the current season's factors into the next one over the last SEASON_BLEND of it. */
+  private updateSeason(): void {
+    const previous = this.season.name
+    if (this.seasonMode === 'hold') {
+      const held = SEASONS[this.heldSeason]
+      this.season = {
+        ...held,
+        progress: 0,
+        tint: [...held.tint] as [number, number, number],
+        ground: [...held.ground] as [number, number, number],
+      }
+    } else {
+      const seasonLength = YEAR_MS / SEASONS.length
+      const t = (((simNow() - this.seasonStart) % YEAR_MS) + YEAR_MS) % YEAR_MS
+      const index = Math.floor(t / seasonLength)
+      const progress = (t - index * seasonLength) / seasonLength
+      const now = SEASONS[index]
+      const next = SEASONS[(index + 1) % SEASONS.length]
+      const k = Math.max(0, (progress - (1 - SEASON_BLEND)) / SEASON_BLEND)
+      const mix = (a: number, b: number): number => a + (b - a) * k
+      this.season = {
+        name: now.name,
+        progress,
+        food: mix(now.food, next.food),
+        eat: mix(now.eat, next.eat),
+        lay: mix(now.lay, next.lay),
+        rest: mix(now.rest, next.rest),
+        spoil: mix(now.spoil, next.spoil),
+        frost: mix(now.frost, next.frost),
+        tint: [mix(now.tint[0], next.tint[0]), mix(now.tint[1], next.tint[1]), mix(now.tint[2], next.tint[2])],
+        // The soil changes slowly: it blends across the WHOLE season (eased), not just its end.
+        ground: ((): [number, number, number] => {
+          const e = progress * progress * (3 - 2 * progress)
+          const g = (i: number): number => now.ground[i] + (next.ground[i] - now.ground[i]) * e
+          return [g(0), g(1), g(2)]
+        })(),
+      }
+    }
+    setRestFactor(this.season.rest)
+    if (this.season.name !== previous && this.season.name !== 'None') {
+      if (previous !== 'None') this.renewUnknownFoodSpots()
+      this.events.seasonChanged?.(this.season.name)
+    }
+  }
+
   private rollSpotAmount(): number {
-    return rollFoodAmount() * this.foodAvailability
+    return rollFoodAmount() * this.effectiveFood
   }
 
   private ensureFoodSpots(): void {
-    const target = foodSpotTarget(this.foodReach, this.foodAvailability)
+    const target = foodSpotTarget(this.foodReach, this.effectiveFood)
     while (FOOD_SPOTS.length < target) {
       const amount = this.rollSpotAmount()
       FOOD_SPOTS.push({ id: this.nextSpotId++, epoch: 0, position: this.placeFood(), remaining: amount, initial: amount })
@@ -368,29 +503,36 @@ export class Colony {
    * this spot's users are affected, the rest of the colony keeps foraging its own spots.
    * The position is mutated in place (the view follows the object); ants hold copies.
    */
-  private respawnFoodSpot(spot: FoodSpot): void {
+  private respawnFoodSpot(spot: FoodSpot, seasonal = false): void {
     // A poorer environment than the ground currently shows: this spot is not replaced.
     // Its epoch still changes, so every memory of it goes stale like any emptied spot.
-    if (FOOD_SPOTS.length > foodSpotTarget(this.foodReach, this.foodAvailability)) {
+    if (FOOD_SPOTS.length > foodSpotTarget(this.foodReach, this.effectiveFood)) {
       spot.epoch++
       spot.remaining = 0
       FOOD_SPOTS.splice(FOOD_SPOTS.indexOf(spot), 1)
-      this.foodSitesDepleted++
-      this.events.foodSiteMoved?.(spot.position, 0)
+      if (!seasonal) {
+        this.foodSitesDepleted++
+        this.events.foodSiteMoved?.(spot.position, 0)
+      }
       return
     }
     spot.position.copyFrom(this.placeFood(spot))
     spot.initial = this.rollSpotAmount()
     spot.remaining = spot.initial
     spot.epoch++
-    this.foodSitesDepleted++
-    this.events.foodSiteMoved?.(spot.position, spot.initial)
+    // Seasonal renewal is not "a spot ran out": no depletion count, no notification.
+    if (!seasonal) {
+      this.foodSitesDepleted++
+      this.events.foodSiteMoved?.(spot.position, spot.initial)
+    }
   }
 
   // --- economy ---------------------------------------------------------------
 
   private consumption(): number {
-    return this.ants.reduce((sum, a) => sum + FOOD_PER_ANT_PER_MIN[a.data.type], 0)
+    const adults = this.ants.reduce((sum, a) => sum + FOOD_PER_ANT_PER_MIN[a.data.type], 0)
+    // Larvae eat too.
+    return (adults + this.brood.length * BROOD_FOOD_PER_MIN) * this.season.eat
   }
 
   /**
@@ -405,6 +547,7 @@ export class Colony {
 
   private economyTick(): void {
     const dtMin = ECONOMY_TICK_MS / 60e3
+    this.updateSeason()
     this.ensureFoodSpots()
     this.collectors = this.ants.filter((a) => a.data.behaviour.actualTask.type === 'Collect').length
     this.resyncDedicatedAnts()
@@ -430,13 +573,24 @@ export class Colony {
     this.intakeThisTick = 0
 
     // Out: spoilage (Store work keeps it down) and everyone eating.
-    const spoiled = this.food * SPOILAGE_PER_MIN * (1 - this.supply('Store')) * dtMin
+    const spoiled = this.food * SPOILAGE_PER_MIN * this.season.spoil * (1 - this.supply('Store')) * dtMin
     const eaten = this.consumption() * dtMin
     this.spoilagePerMin = smooth(this.spoilagePerMin, spoiled / dtMin)
     this.consumptionPerMin = smooth(this.consumptionPerMin, eaten / dtMin)
     this.food -= spoiled + eaten
 
     // Empty store: some ants starve.
+    if (this.food < 0 && this.brood.length > 0) {
+      // Famine: the colony eats its brood first (as real colonies do), recovering part of the
+      // food each egg cost. Rate-limited, so a short dip doesn't wipe the whole brood.
+      this.broodEatProgress += this.brood.length * BROOD_CANNIBALISM_PER_MIN * dtMin
+      while (this.broodEatProgress >= 1 && this.brood.length > 0 && this.food < 0) {
+        this.broodEatProgress -= 1
+        this.brood.pop()
+        this.broodEaten++
+        this.food += EGG_FOOD_COST * BROOD_CANNIBALISM_RETURN
+      }
+    }
     if (this.food < 0) {
       this.food = 0
       // Accumulate fractional deaths like the queen's eggs. Math.ceil per 1s tick meant at
@@ -483,6 +637,7 @@ export class Colony {
       }
     })
 
+    this.broodTick(dtMin)
     this.queenTick(dtMin)
 
     const k = dtMin / RATE_WINDOW_MIN
@@ -490,6 +645,47 @@ export class Colony {
     this.deathsPerMin += ((this.deaths - this.deaths0) / dtMin - this.deathsPerMin) * k
     this.births0 = this.births
     this.deaths0 = this.deaths
+  }
+
+  /** Digging effect left on frozen ground (EXPERIMENT_FROZEN_GROUND). */
+  get digFactor(): number {
+    return EXPERIMENT_FROZEN_GROUND ? 1 - FROST_DIG_LOSS * this.season.frost : 1
+  }
+
+  /** Brood-care supply, 0..1: how well the brood is being looked after. */
+  get broodCare(): number {
+    return this.supply('EggLarvePupeaCare')
+  }
+
+  /**
+   * Brood develops, asks for care, and some of it dies if neglected. Its care NEED is
+   * proportional to how much brood there is, so brood care follows the eggs laid: high in a
+   * spring brood boom, near zero in winter when the queen barely lays.
+   */
+  private broodTick(dtMin: number): void {
+    const n = this.brood.length
+    this.needs.EggLarvePupeaCare.need += n * BROOD_CARE_NEED_PER_MIN * dtMin
+    if (n === 0) return
+    const care = this.broodCare
+    // Well tended: full speed. Neglected: down to a quarter speed.
+    const step = ((dtMin * 60e3) / BROOD_DEV_MS) * (0.25 + 0.75 * care)
+    // Neglect kills: (1 − care)² so a slightly short-handed nursery loses little.
+    this.broodDeathProgress += n * BROOD_NEGLECT_DEATHS_PER_MIN * (1 - care) * (1 - care) * dtMin
+    while (this.broodDeathProgress >= 1 && this.brood.length > 0) {
+      this.broodDeathProgress -= 1
+      this.brood.splice(Math.floor(Math.random() * this.brood.length), 1)
+      this.broodDied++
+    }
+    for (let i = this.brood.length - 1; i >= 0; i--) {
+      const b = this.brood[i]
+      b.progress += step
+      if (b.progress >= 1) {
+        this.brood.splice(i, 1)
+        this.broodEmerged++
+        this.startAnt(this.born())
+        this.events.born?.()
+      }
+    }
   }
 
   private queenTick(dtMin: number): void {
@@ -502,16 +698,15 @@ export class Colony {
     const foodFactor = Number.isFinite(reserve) ? reserve / (reserve + QUEEN_FOOD_HALF_RESERVE_MIN) : 1
     // A neglected queen still lays, slowly.
     const careFactor = 0.25 + 0.75 * this.supply('QueenCare')
-    const atCap = this.ants.length >= POPULATION_CAP
-    this.layRate = atCap ? 0 : QUEEN_EGGS_PER_MIN_MAX * foodFactor * careFactor
+    const atCap = this.ants.length + this.brood.length >= POPULATION_CAP
+    this.layRate = atCap ? 0 : QUEEN_EGGS_PER_MIN_MAX * foodFactor * careFactor * this.season.lay
     this.layLimit = atCap ? 'cap' : foodFactor < careFactor ? 'food' : careFactor < 1 ? 'care' : 'none'
 
     this.eggProgress += this.layRate * dtMin
-    while (this.eggProgress >= 1 && this.food >= EGG_FOOD_COST && this.ants.length < POPULATION_CAP) {
+    while (this.eggProgress >= 1 && this.food >= EGG_FOOD_COST && this.ants.length + this.brood.length < POPULATION_CAP) {
       this.eggProgress -= 1
       this.food -= EGG_FOOD_COST
-      this.startAnt(this.born())
-      this.events.born?.()
+      this.brood.push({ progress: 0 }) // an egg, not an ant yet
     }
     if (this.food < EGG_FOOD_COST) this.eggProgress = Math.min(this.eggProgress, 1)
   }

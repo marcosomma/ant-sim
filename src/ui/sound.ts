@@ -29,7 +29,7 @@ const TICKS_PER_SECOND = 4
 /** Store counts as recovered only well above the low line, so it doesn't flicker. */
 const RECOVER_FACTOR = 1.4
 
-type CueName = 'storeEmpty' | 'storeLow' | 'spotEmptied' | 'spotFound' | 'storeRecovered' | 'generation'
+type CueName = 'storeEmpty' | 'storeLow' | 'spotEmptied' | 'spotFound' | 'storeRecovered' | 'season' | 'generation'
 type TickName = 'born' | 'died'
 
 const TICKS: Record<TickName, Note> = {
@@ -43,6 +43,7 @@ const PRIORITY: Record<CueName, number> = {
   spotEmptied: 4,
   spotFound: 3,
   storeRecovered: 2,
+  season: 1.5,
   generation: 1,
 }
 
@@ -77,6 +78,12 @@ const CUES: Record<CueName, Note[]> = {
   storeRecovered: [
     { freq: 392, at: 0, dur: 0.3, gain: 0.3 },
     { freq: 523, at: 0.15, dur: 0.6, gain: 0.3 },
+  ],
+  // Soft three-note turn: a new season.
+  season: [
+    { freq: 392, at: 0, dur: 0.35, gain: 0.25 },
+    { freq: 440, at: 0.14, dur: 0.35, gain: 0.22 },
+    { freq: 523, at: 0.28, dur: 0.6, gain: 0.22 },
   ],
   // Single faint bell with an octave overtone: a new generation.
   generation: [
@@ -237,6 +244,18 @@ export const createSound = (colony: Colony): HTMLButtonElement => {
       case 'storeRecovered':
         toast({ kind: name, title: 'Food store recovered', detail: `${reserve.toFixed(1)} min of food`, color: '#8a8980' })
         break
+      case 'season': {
+        const s = colony.season.name
+        const detail: Record<string, string> = {
+          Spring: 'food returns · the queen lays again',
+          Summer: 'food peaks · stores spoil faster',
+          Autumn: 'food thins · ants rest more',
+          Winter: 'little food · the queen nearly stops · most ants rest',
+        }
+        const color: Record<string, string> = { Spring: '#8fbf7a', Summer: '#e2bf5a', Autumn: '#d98b4a', Winter: '#a8bde0' }
+        toast({ kind: name, title: `${s} begins`, detail: detail[s] ?? '', color: color[s] ?? '#c3c2b7' })
+        break
+      }
       case 'generation':
         toast({ kind: name, title: `Generation ${maxGeneration}`, detail: `${colony.ants.length} ants alive`, color: '#c3c2b7' })
         break
@@ -287,6 +306,11 @@ export const createSound = (colony: Colony): HTMLButtonElement => {
     sound.tick('died')
     toasts.pulse(-1)
   })(colony.events.died)
+
+  colony.events.seasonChanged = ((previous) => (name) => {
+    previous?.(name)
+    emit('season')
+  })(colony.events.seasonChanged)
 
   colony.events.foodSiteMoved = ((previous) => (at, amount) => {
     previous?.(at, amount)

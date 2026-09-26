@@ -1,10 +1,10 @@
 import { SPEED_STEPS, getSpeed, onSpeedChange, setSpeed } from '../commons/simClock'
-import { FOOD_AVAILABILITY_STEPS } from '../constants'
+import { SEASONS } from '../constants'
 import type { Colony } from '../model/colony'
 import '../assets/css/hud.css'
 
 // Everything you can SET lives here; the Anthill panel only REPORTS. A slim bar at the
-// bottom centre: time (pause + speed), environment (food availability), sound.
+// bottom centre: time (pause + speed), season (four points + cycle), sound.
 
 const h = <K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, text?: string): HTMLElementTagNameMap[K] => {
   const el = document.createElement(tag)
@@ -22,9 +22,6 @@ const stepSlider = (label: string, steps: number): HTMLInputElement => {
   slider.setAttribute('aria-label', label)
   return slider
 }
-
-const envName = (v: number): string =>
-  v < 0.4 ? 'barren' : v < 0.7 ? 'scarce' : v < 0.95 ? 'lean' : v <= 1.05 ? 'normal' : v <= 1.6 ? 'rich' : 'abundant'
 
 export const createControls = (colony: Colony, soundButton: HTMLButtonElement): void => {
   const root = h('aside', 'hud controls')
@@ -75,33 +72,63 @@ export const createControls = (colony: Colony, soundButton: HTMLButtonElement): 
     }
   })
 
-  // --- Environment ----------------------------------------------------------
-  // How rich the ground is, live: drag towards barren or abundant and watch the colony react.
-  const env = h('div', 'controls-group')
-  const envLabel = h('span', 'controls-label', 'Food')
-  const envSlider = stepSlider('Food availability in the environment', FOOD_AVAILABILITY_STEPS.length)
-  const envValue = h('output', 'controls-value controls-value--wide')
-  env.append(envLabel, envSlider, envValue)
-  const paintEnvironment = (): void => {
-    const v = colony.foodAvailability
-    const i = FOOD_AVAILABILITY_STEPS.findIndex((s) => Math.abs(s - v) < 1e-6)
-    envSlider.value = `${i === -1 ? FOOD_AVAILABILITY_STEPS.indexOf(1) : i}`
-    envValue.textContent = envName(v)
-    envSlider.setAttribute('aria-valuetext', `${envName(v)}, ×${v}`)
-    env.title =
-      `Food availability ×${v} (${envName(v)}): how many food spots the ground holds and how much each ` +
-      `new one carries. Richer shows at once; poorer sets in as spots run out.`
-  }
-  envSlider.addEventListener('input', () => {
-    colony.setFoodAvailability(FOOD_AVAILABILITY_STEPS[Number(envSlider.value)])
-    paintEnvironment()
+  // --- Seasons: four fixed points + cycle ------------------------------------
+  // Click a season to set it. Cycle on: the year carries on turning from there. Cycle off:
+  // the colony stays in that season, with all its factors (food, eating, laying, rest).
+  const seasons = h('div', 'controls-group controls-seasons')
+  seasons.setAttribute('role', 'group')
+  seasons.setAttribute('aria-label', 'Season')
+  // Same colours as the season notifications.
+  const SEASON_HEX: Record<string, string> = { Spring: '#8fbf7a', Summer: '#e2bf5a', Autumn: '#d98b4a', Winter: '#a8bde0' }
+  const points = SEASONS.map((season, i) => {
+    const b = h('button', 'controls-season')
+    b.type = 'button'
+    b.style.setProperty('--season', SEASON_HEX[season.name])
+    const live = h('i', 'controls-season-live')
+    const name = h('span', 'controls-season-name', season.name)
+    const bar = h('span', 'controls-season-progress')
+    b.append(live, name, bar)
+    b.title =
+      `${season.name}: food ×${season.food}, eating ×${season.eat}, laying ×${season.lay}, ` +
+      `rest ×${season.rest}, spoilage ×${season.spoil}`
+    b.onclick = () => {
+      colony.setSeason(i)
+      paintSeason()
+    }
+    seasons.append(b)
+    return { b, bar }
   })
-  paintEnvironment()
+  const cycle = h('button', 'controls-toggle', 'Cycle')
+  cycle.type = 'button'
+  cycle.onclick = () => {
+    colony.setSeasonMode(colony.seasonMode === 'cycle' ? 'hold' : 'cycle')
+    paintSeason()
+  }
+  seasons.append(cycle)
+
+  const paintSeason = (): void => {
+    const cycling = colony.seasonMode === 'cycle'
+    const current = colony.seasonIndex
+    points.forEach(({ b, bar }, i) => {
+      const on = i === current
+      b.classList.toggle('is-current', on)
+      b.setAttribute('aria-pressed', String(on))
+      bar.style.width = on && cycling ? `${Math.round(colony.season.progress * 100)}%` : on ? '100%' : '0%'
+    })
+    seasons.classList.toggle('is-cycling', cycling)
+    cycle.classList.toggle('is-on', cycling)
+    cycle.setAttribute('aria-pressed', String(cycling))
+    cycle.title = cycling
+      ? `The year turns: 40 sim minutes, 10 per season (food now ×${colony.effectiveFood.toFixed(2)}). Click to hold this season.`
+      : `Holding ${colony.season.name} (food ×${colony.effectiveFood.toFixed(2)}). Click to let the year turn again.`
+  }
+  paintSeason()
+  window.setInterval(paintSeason, 500)
 
   // --- Sound ----------------------------------------------------------------
   const sound = h('div', 'controls-group controls-group--end')
   sound.append(soundButton)
 
-  root.append(time, h('span', 'controls-rule'), env, h('span', 'controls-rule'), sound)
+  root.append(time, h('span', 'controls-rule'), seasons, h('span', 'controls-rule'), sound)
   document.body.append(root)
 }

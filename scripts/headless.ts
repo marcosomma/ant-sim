@@ -36,7 +36,7 @@ if (availability !== undefined) colony.foodAvailability = availability
 colony.start()
 
 out(`CHECK_TIME_INTERVAL=${(CHECK_TIME_INTERVAL / 1e3).toFixed(1)}s  speed=${speed}×  minutes=${minutes}  food=×${colony.foodAvailability}`)
-out('min   alive  asleep  collect  knowC  spots known  empt  range  exp  in/m  eat/m  food   reserve  lay/m  limit  born  died  starved  gen')
+out('min  season   alive  asleep  collect  knowC  spots known  empt  range  exp  in/m  eat/m  food   reserve  lay/m  limit  born  died  starved  gen')
 let nextReport = 60e3
 const started = Date.now()
 while (simNow() < minutes * 60e3 && colony.ants.length > 0) {
@@ -50,6 +50,7 @@ while (simNow() < minutes * 60e3 && colony.ants.length > 0) {
     out(
       [
         String(Math.round(simNow() / 60e3)).padStart(3),
+        colony.season.name.padEnd(7),
         String(ants.length).padStart(6),
         String(colony.asleep).padStart(7),
         String(collect).padStart(8),

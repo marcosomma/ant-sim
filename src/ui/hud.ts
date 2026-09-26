@@ -134,10 +134,11 @@ export const createHud = (src: HudSource): void => {
   const economy = h('section', 'hud-section')
   const reserve = tile('Reserve')
   const queen = tile('Queen')
+  const broodTile = tile('Brood')
   const spots = tile('Food spots')
   const territory = tile('Territory')
   const economyTiles = h('div', 'hud-tiles')
-  economyTiles.append(reserve.el, queen.el, spots.el, territory.el)
+  economyTiles.append(reserve.el, queen.el, broodTile.el, spots.el, territory.el)
   economy.append(h('h2', 'hud-heading', 'Food & queen'), economyTiles)
 
   // --- Per task -------------------------------------------------------------
@@ -364,6 +365,15 @@ export const createHud = (src: HudSource): void => {
     queen.value.textContent = `${layRate.toFixed(1)}/m`
     queen.detail.textContent = extinct ? 'colony extinct' : colony.food < EGG_FOOD_COST ? 'not laying: no food' : LAY_LIMIT_NOTE[colony.layLimit]
     queen.el.title = `Eggs per minute (max ${QUEEN_EGGS_PER_MIN_MAX}), limited by food reserve and queen care`
+
+    // Brood: eggs/larvae/pupae in development; the bar is how well they are cared for.
+    const broodCount = colony.brood.length
+    broodTile.fill.style.width = pct(broodCount ? colony.broodCare : 0)
+    broodTile.value.textContent = `${broodCount}`
+    broodTile.detail.textContent = broodCount ? `care ${pct(colony.broodCare)}` : 'no brood'
+    broodTile.el.title =
+      `${broodCount} brood developing (bar = care they get) · ${colony.broodEmerged} emerged as workers, ` +
+      `${colony.broodDied} died of neglect, ${colony.broodEaten} eaten in famine`
 
     // Food spots known out of spots on the ground; more appear as the territory grows.
     const spotCount = colony.foodSpots.length

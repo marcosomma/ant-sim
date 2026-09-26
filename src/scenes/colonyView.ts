@@ -1,6 +1,5 @@
 import {
   AbstractMesh,
-  LinesMesh,
   ActionManager,
   ArcRotateCamera,
   Color3,
@@ -24,7 +23,11 @@ import {
   FOOD_SITE_MIN,
   FoodSpot,
   NEST_BASE_DIAMETER,
+  EXPERIMENT_FROZEN_GROUND,
+  NEST_BOWL,
+  SEARCHING_RADIUS,
   SCOUTING,
+  SURFACE_Y,
   SITE_RADIUS_MAX,
   SYMBOL_SCALE,
   WORLD_SCALE,
@@ -49,6 +52,8 @@ const BASE_RADIUS = 340 * S
 const WHEEL_PRECISION_AT_BASE = 1
 const MARKER_HEIGHT = 30 * S // camera target when flying to a site
 const FOCUS_RADIUS = 90 * S
+/** Underground bowl at zero expansion: wide and deep enough for every chamber. */
+const BOWL_BASE_RADIUS = 2 * SEARCHING_RADIUS
 const BASE_DIAMETER = 12 * S
 const ROAD_MIN = 0.25 * S
 const ROAD_MAX = 3.5 * S
@@ -59,6 +64,7 @@ const PINGS_PER_SECOND = 30
 const PING_LIFE_S = 0.6
 const DEATH = new Color3(0.45, 0.45, 0.43)
 const WHITE = Color3.White()
+const ICE = new Color3(0.86, 0.93, 1)
 const BLACK = Color3.Black()
 
 interface Site {
@@ -131,7 +137,10 @@ export class ColonyView {
   private highlighted: TaskName | null = null
   private foodViews: FoodSpotView[] = []
   private perimeter!: TransformNode
-  private perimeterRing!: LinesMesh
+  private perimeterMat!: StandardMaterial
+  private grid!: GridMaterial
+  private frostMat: StandardMaterial | null = null
+  private bowl: Mesh | null = null
   /** Eased scouting supply shown by the perimeter's brightness. */
   private scoutLevel = 0
 
@@ -177,12 +186,24 @@ export class ColonyView {
     const grid = new GridMaterial('nest-level-grid', this.scene)
     grid.mainColor = BLACK.clone()
     grid.lineColor = new Color3(0.3, 0.3, 0.28)
-    grid.opacity = 0.25
+    grid.opacity = 0.55
     grid.gridRatio = 20 * S
     grid.majorUnitFrequency = 5
     grid.minorUnitVisibility = 0.3
     grid.backFaceCulling = false
     ground.material = grid
+    this.grid = grid
+
+    // EXPERIMENTAL frozen ground: a faint icy sheen just above the grid, as strong as the frost.
+    if (EXPERIMENT_FROZEN_GROUND) {
+      const frost = MeshBuilder.CreateGround('frost', { width: GROUND_SIZE, height: GROUND_SIZE }, this.scene)
+      frost.position.y = 0.05 * S
+      frost.isPickable = false
+      const mat = material(this.scene, 'frost', new Color3(0.85, 0.92, 1), 0, 0.6)
+      mat.disableLighting = true
+      frost.material = mat
+      this.frostMat = mat
+    }
   }
 
   /**
@@ -190,26 +211,37 @@ export class ColonyView {
    * Expansion widens it (food is pushed out as the nest digs), so it measures expansion.
    * Built once at radius 1 and scaled, so it can grow smoothly.
    */
+  /**
+   * The territory boundary as a real barrier: a dashed fence of upright panels standing on
+   * the ground. Its SIZE is expansion (it widens as the nest digs out) and its BRIGHTNESS is
+   * scouting (see paintPerimeter). Panels are thin instances of one box, laid out on a unit
+   * circle under a node scaled by the territory radius (x/z only, so the height stays fixed).
+   */
   private createPerimeter(): void {
     const node = new TransformNode('perimeter', this.scene)
-    // Babylon lays dashes PER SEGMENT and drops any segment shorter than one dash period,
-    // so the circle needs fewer, longer segments than dashes (64 segments, 2 dashes each).
-    const SEGMENTS = 64
-    const points = Array.from({ length: SEGMENTS + 1 }, (_, i) => {
-      const a = (i / SEGMENTS) * Math.PI * 2
-      return new Vector3(Math.cos(a), 0.2, Math.sin(a))
-    })
-    const ring = MeshBuilder.CreateDashedLines(
-      'perimeter:ring',
-      { points, dashSize: 3, gapSize: 2, dashNb: SEGMENTS * 2 },
-      this.scene,
-    )
-    ring.color = SCOUTING ? TASK_COLOR3.Exploration.clone() : new Color3(0.72, 0.7, 0.62)
-    ring.alpha = 0.55
-    this.perimeterRing = ring
-    ring.isPickable = false
-    ring.parent = node
-    node.scaling.setAll(SITE_RADIUS_MAX * this.colony.foodReach)
+    const PANELS = 96
+    const HEIGHT = 4.5 * S
+    const panel = MeshBuilder.CreateBox('perimeter:fence', { size: 1 }, this.scene)
+    panel.isPickable = false
+    panel.parent = node
+    const arc = (Math.PI * 2) / PANELS
+    const matrices = new Float32Array(PANELS * 16)
+    for (let i = 0; i < PANELS; i++) {
+      const a = i * arc
+      // Box x-axis along the tangent: rotation about Y by −(a + π/2) in Babylon's frame.
+      const rotation = Quaternion.RotationAxis(Vector3.Up(), -a - Math.PI / 2)
+      Matrix.Compose(
+        new Vector3(arc * 0.6, HEIGHT, 0.006), // 60% panel, 40% gap: the dashes
+        rotation,
+        new Vector3(Math.cos(a), SURFACE_Y + HEIGHT / 2, Math.sin(a)),
+      ).copyToArray(matrices, i * 16)
+    }
+    panel.thinInstanceSetBuffer('matrix', matrices, 16)
+    const mat = material(this.scene, 'perimeter:fence', SCOUTING ? TASK_COLOR3.Exploration : new Color3(0.72, 0.7, 0.62), 0.55, 0.6)
+    mat.backFaceCulling = false
+    panel.material = mat
+    this.perimeterMat = mat
+    node.scaling.set(SITE_RADIUS_MAX * this.colony.foodReach, 1, SITE_RADIUS_MAX * this.colony.foodReach)
     this.perimeter = node
   }
 
@@ -239,6 +271,19 @@ export class ColonyView {
     this.chamberMat = material(this.scene, 'sleep-chamber', new Color3(0.45, 0.5, 0.75), 0.08, 0.2)
     this.chamberMat.backFaceCulling = false
     chamber.material = this.chamberMat
+
+    // TRIAL: the nest's real 3D volume is underground: a faint bowl under the dome holding the
+    // chambers and the sleep chamber. It widens with expansion, like the fence on the surface.
+    if (NEST_BOWL) {
+      const bowl = MeshBuilder.CreateSphere('nest:bowl', { diameter: 2, slice: 0.5, segments: 32 }, this.scene)
+      bowl.rotation.x = Math.PI // the lower half: a bowl opening up to the surface
+      bowl.position.y = SURFACE_Y
+      bowl.isPickable = false
+      const mat = material(this.scene, 'nest:bowl', new Color3(0.55, 0.42, 0.3), 0.07, 0.2)
+      mat.backFaceCulling = false
+      bowl.material = mat
+      this.bowl = bowl
+    }
   }
 
   private createSite(task: TaskName): void {
@@ -398,6 +443,21 @@ export class ColonyView {
     const r = this.perimeter.scaling.x + (territory - this.perimeter.scaling.x) * 0.05
     this.perimeter.scaling.set(r, 1, r)
     if (SCOUTING) this.paintPerimeter()
+    // Faint seasonal tint on the ground grid (neutral when seasons are off).
+    const [tr, tg, tb] = this.colony.season.tint
+    this.grid.lineColor.set(tr, tg, tb)
+    // The soil itself follows the season, blending slowly through the year. Half opaque, so
+    // the chambers underground still show through like a cut-away.
+    const [gr, gg, gb] = this.colony.season.ground
+    this.grid.mainColor.set(gr, gg, gb)
+    if (this.frostMat) this.frostMat.alpha = 0.09 * this.colony.season.frost
+
+    // The underground bowl covers every chamber (deepest: the sleep chamber) and grows with expansion.
+    if (this.bowl) {
+      const target = BOWL_BASE_RADIUS * (1 + 0.8 * this.colony.expansionLevel)
+      const r = this.bowl.scaling.x + (target - this.bowl.scaling.x) * 0.05
+      this.bowl.scaling.setAll(r)
+    }
 
     // Digging widens the dome. Eased rather than snapped so growth reads as growth.
     const nestScale = this.colony.nestDiameter / NEST_BASE_DIAMETER
@@ -426,6 +486,12 @@ export class ColonyView {
       const starving = supply < 0.25 && site.known > 0
       if (!site.marker) return
       site.marker.mat.emissiveColor.copyFrom(TASK_COLOR3[task]).scaleInPlace(starving ? 0.3 + 0.5 * pulse : 0.45)
+      // EXPERIMENTAL frozen ground: the soil heaps ice over as the ground freezes.
+      if (EXPERIMENT_FROZEN_GROUND && task === 'Expansion') {
+        const frost = this.colony.season.frost
+        Color3.LerpToRef(TASK_COLOR3.Expansion, ICE, frost * 0.75, site.marker.mat.diffuseColor)
+        site.marker.mat.emissiveColor.scaleInPlace(1 - 0.4 * frost).addInPlace(ICE.scale(0.25 * frost))
+      }
       const target = Math.max(0, Math.min(supply, MAX_LEVEL))
       site.level += (target - site.level) * 0.15
       site.marker.setLevel(site.level)
@@ -520,8 +586,8 @@ export class ColonyView {
     const dim = this.highlighted !== null && this.highlighted !== 'Exploration'
     const lit = this.highlighted === 'Exploration'
     const base = 0.15 + 0.75 * level
-    this.perimeterRing.alpha = (starving ? base * (0.5 + 0.5 * pulse) : base) * (dim ? 0.25 : 1)
-    this.perimeterRing.color.copyFrom(TASK_COLOR3.Exploration).scaleInPlace(lit ? 1.4 : 1)
+    this.perimeterMat.alpha = (starving ? base * (0.5 + 0.5 * pulse) : base) * (dim ? 0.25 : 1)
+    this.perimeterMat.emissiveColor.copyFrom(TASK_COLOR3.Exploration).scaleInPlace(lit ? 0.9 : 0.6)
   }
 
   // --- food spots ------------------------------------------------------------

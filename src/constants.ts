@@ -194,15 +194,57 @@ export const placeInOctant = (
   return best
 }
 
+// --- where each job happens ---------------------------------------------------
+// Sites used to float at random heights (±~127). Now the world has a ground (y = 0) and
+// jobs sit where they happen in a real nest:
+//   surface (y = 0): food spots, the guard post (Protection), the midden (Cleaning);
+//   underground, around the tunnel under the dome: the queen's chamber, the nursery (brood),
+//   the granary (store), and the digging front (expansion) just under the surface at the
+//   nest's edge, which is where frozen ground bites. The sleep chamber is deepest.
+// Interior sites are known from birth: workers emerge inside the nest.
+export const SURFACE_Y = 0
+export const INTERIOR_TASKS: TaskName[] = ['QueenCare', 'EggLarvePupeaCare', 'Store', 'Expansion']
+
+/** A point on the surface at a random angle and radius in [minR, maxR], clear of `taken`. */
+export const placeOnSurface = (taken: Vector3[], minR: number, maxR: number, attempts = PLACEMENT_ATTEMPTS): Vector3 => {
+  let best = new Vector3(minR, SURFACE_Y, 0)
+  let bestClearance = -1
+  for (let i = 0; i < attempts; i++) {
+    const a = Math.random() * Math.PI * 2
+    // Uniform over the annulus' AREA, not its radius, so spots don't bunch up near the nest.
+    const rr = Math.sqrt(minR * minR + Math.random() * (maxR * maxR - minR * minR))
+    const candidate = new Vector3(Math.cos(a) * rr, SURFACE_Y, Math.sin(a) * rr)
+    if (farEnough(candidate, taken, MIN_SITE_DISTANCE)) return candidate
+    const clearance = taken.length === 0 ? Infinity : Math.min(...taken.map((p) => Vector3.Distance(candidate, p)))
+    if (clearance > bestClearance) {
+      bestClearance = clearance
+      best = candidate
+    }
+  }
+  return best
+}
+
 /** Mutated in place on regeneration, so every live reader picks the new position up. */
 export const TASK_POSITIONS: Record<TaskName, Vector3> = (() => {
-  const placed: Vector3[] = []
+  const R = SEARCHING_RADIUS
+  const turn = Math.random() * Math.PI * 2
+  const chamber = (angle: number, radius: number, depth: number): Vector3 =>
+    new Vector3(Math.cos(turn + angle) * radius, -depth, Math.sin(turn + angle) * radius)
   const positions = {} as Record<TaskName, Vector3>
-  for (const task of Object.keys(SITE_OCTANT) as TaskName[]) {
-    const pos = placeSite(task, placed)
-    placed.push(pos)
-    positions[task] = pos
-  }
+  // Interior: chambers spaced a quarter turn apart around the tunnel, at different depths.
+  positions.QueenCare = chamber(0, 0.8 * R, 1.1 * R) // deep and central: the queen
+  positions.EggLarvePupeaCare = chamber(Math.PI / 2, 0.9 * R, 0.8 * R) // nursery next to her
+  positions.Store = chamber(Math.PI, 0.9 * R, 0.7 * R) // granary
+  positions.Expansion = chamber((3 * Math.PI) / 2, 1.4 * R, 0.25 * R) // digging front, shallow
+  // Surface: guard post near the entrance, midden further out, clear of everything else.
+  const placed = Object.values(positions)
+  positions.Protection = placeOnSurface(placed, 1.4 * R, 1.8 * R)
+  placed.push(positions.Protection)
+  positions.Cleaning = placeOnSurface(placed, 2.5 * R, 3.5 * R)
+  placed.push(positions.Cleaning)
+  // No real place for these any more (scouts roam; food lives in FOOD_SPOTS), kept on the surface.
+  positions.Exploration = placeOnSurface(placed, 3 * R, 4 * R)
+  positions.Collect = placeOnSurface(placed, 3 * R, 4 * R)
   return positions
 })()
 
@@ -265,7 +307,13 @@ export const getGeneticOrientedTask = (type: AntType): TaskName => {
 // Naps last 0.5–1.5 check intervals. Was CHECK_TIME_INTERVAL / 24e3 (≈1–4 ms): a unit slip
 // that made sleep invisible. Real workers take many short naps inside the nest
 // (fire ants: ~250 naps/day of ~1 min, Cassill et al. 2009).
-export const getNapDuration = (): number => CHECK_TIME_INTERVAL * (0.5 + Math.random())
+export const getNapDuration = (): number => CHECK_TIME_INTERVAL * (0.5 + Math.random()) * restFactor
+
+/** Seasonal rest: naps last longer in the cold (set by the Colony from the current season). */
+let restFactor = 1
+export const setRestFactor = (value: number): void => {
+  restFactor = Math.max(0.1, value)
+}
 
 // Sleep chamber: below the nest, not out in the field.
 export const SLEEP_CHAMBER_RADIUS = 10 * SYMBOL_SCALE
@@ -340,6 +388,61 @@ export const FOOD_SPOTS_MAX = 12
 // would in nature: food already on the ground stays, but emptied spots are not replaced
 // until the count matches the new level.
 export const FOOD_AVAILABILITY = 1
+
+// ---------------------------------------------------------------------------
+// Seasons
+// ---------------------------------------------------------------------------
+// A temperate year. Seasons change how the colony LIVES, not only how much food there is:
+// real colonies survive winter by storing food in the good months and slowing right down in
+// the cold (the queen stops laying, ants barely eat and mostly rest in the nest). With food
+// alone, every winter would be a famine.
+//
+// FOOD_AVAILABILITY is the climate's baseline and the season multiplies it, so a rich
+// climate has mild winters and a poor one hard ones.
+// 'cycle' = the year turns; 'hold' = stay in the chosen season (e.g. watch a long winter).
+export type SeasonMode = 'cycle' | 'hold'
+export const SEASON_MODE: SeasonMode = 'cycle'
+/** One year of sim time: 40 min, i.e. 10 per season (≈ 2.5 real minutes at 16×). */
+export const YEAR_MS = 40 * 60e3
+/** Share of each season spent blending into the next, so nothing changes overnight. */
+export const SEASON_BLEND = 0.3
+
+export interface Season {
+  name: 'Spring' | 'Summer' | 'Autumn' | 'Winter'
+  /** × food availability (spots and their size). */
+  food: number
+  /** × how much every ant eats. */
+  eat: number
+  /** × the queen's laying rate. */
+  lay: number
+  /** × nap length: more rest = more of the colony asleep at any time. */
+  rest: number
+  /** × spoilage of the store (heat spoils food). */
+  spoil: number
+  /** Ground-grid tint, a faint cue in 3D. */
+  tint: [number, number, number]
+  /** 0..1 how frozen the ground is (EXPERIMENT_FROZEN_GROUND). */
+  frost: number
+  /** Soil colour: the ground plane blends through these over the whole year. Kept dark. */
+  ground: [number, number, number]
+}
+
+export const SEASONS: Season[] = [
+  { name: 'Spring', food: 1.5, eat: 1, lay: 1.2, rest: 1, spoil: 1, tint: [0.3, 0.36, 0.28], frost: 0, ground: [0.13, 0.2, 0.11] },
+  { name: 'Summer', food: 2, eat: 1.1, lay: 1, rest: 1, spoil: 1.5, tint: [0.38, 0.34, 0.24], frost: 0, ground: [0.21, 0.2, 0.1] },
+  { name: 'Autumn', food: 0.75, eat: 1, lay: 0.6, rest: 1.8, spoil: 1, tint: [0.38, 0.28, 0.2], frost: 0.15, ground: [0.21, 0.13, 0.08] },
+  { name: 'Winter', food: 0.25, eat: 0.4, lay: 0.1, rest: 6, spoil: 0.3, tint: [0.3, 0.33, 0.4], frost: 1, ground: [0.15, 0.17, 0.21] },
+]
+
+/**
+ * EXPERIMENTAL: frozen ground. In the cold the soil is hard, so digging (Expansion work)
+ * achieves much less. Shown as frost on the ground and icy soil heaps. Switch off to remove.
+ */
+export const EXPERIMENT_FROZEN_GROUND = true
+/** Share of digging effect lost on fully frozen ground. */
+export const FROST_DIG_LOSS = 0.8
+
+
 export const FOOD_AVAILABILITY_STEPS = [0.25, 0.5, 0.75, 1, 1.5, 2, 3] as const
 /** Performance ceiling on spots even in the richest environment. */
 export const FOOD_SPOTS_HARD_MAX = 30
@@ -406,17 +509,19 @@ export interface TaskInfluence {
   rest: Partial<Record<TaskName, number>>
 }
 
+// Brood care is NOT in any `rest` below: its need comes from the brood itself (see Brood),
+// so it follows the eggs laid instead of the other tasks' work.
 export const TASK_INFLUENCE: Record<TaskName, TaskInfluence> = {
   // Guarding the nest is hungry work, and it keeps the brood chamber attended.
-  Protection: { main: 'Collect', rest: { QueenCare: 1, EggLarvePupeaCare: 1 } },
+  Protection: { main: 'Collect', rest: { QueenCare: 1 } },
   // Scouts come back with somewhere new to defend.
-  Exploration: { main: 'Protection', rest: { QueenCare: 1, EggLarvePupeaCare: 1 } },
+  Exploration: { main: 'Protection', rest: { QueenCare: 1 } },
   // Food arriving has to be put away, which fills the nest and makes mess.
   Collect: { main: 'Store', rest: { Expansion: 1, Cleaning: 1, Exploration: 2 } },
   // A fuller store needs more chambers, and a worked store needs tidying.
   Store: { main: 'Expansion', rest: { Exploration: 1, Cleaning: 1 } },
   // Digging makes spoil to clear, new chambers to stock, and brood room to use.
-  Expansion: { main: 'Cleaning', rest: { QueenCare: 1, EggLarvePupeaCare: 1, Exploration: 2, Store: 1 } },
+  Expansion: { main: 'Cleaning', rest: { QueenCare: 1, Exploration: 2, Store: 1 } },
   Cleaning: { main: 'Protection', rest: { Exploration: 1 } },
   QueenCare: { main: 'Collect', rest: { Expansion: 1 } },
   EggLarvePupeaCare: { main: 'Expansion', rest: { Collect: 1 } },
@@ -480,10 +585,21 @@ export const EXTERIOR_HAZARD_PER_MIN = 1 / (3 * (LIFESPAN_MEAN_MS / 60e3))
 export const getReproductionTime = (): number =>
   REPRODUCTION_ON ? Math.floor(Math.random() * CHECK_TIME_INTERVAL * 30) : 0
 
+/**
+ * TRIAL (revert by setting false): search on the ground. Random search points used to have a
+ * random height too, a leftover from when sites floated in the air, so scouts and searching
+ * collectors flew up and down through a sphere. Everything they look for now lies on the
+ * surface, so they search the surface: the territory really is the disc inside the fence.
+ */
+export const FLAT_EXPLORATION = true
+
+/** TRIAL (revert by setting false): draw the nest's underground volume as a faint bowl. */
+export const NEST_BOWL = true
+
 export const getRandomTarget = (): Vector3 =>
   new Vector3(
     getRandomArbitrary(randomPointInRadius(false), randomPointInRadius(true)),
-    getRandomArbitrary(randomPointInRadius(false), randomPointInRadius(true)),
+    FLAT_EXPLORATION ? SURFACE_Y : getRandomArbitrary(randomPointInRadius(false), randomPointInRadius(true)),
     getRandomArbitrary(randomPointInRadius(false), randomPointInRadius(true)),
   )
 
@@ -513,11 +629,12 @@ export const getAntObject = (type: AntType): AntData => ({
     discoveredPositions: {
       Protection: !AUTODISCOVERING,
       Exploration: !AUTODISCOVERING,
-      QueenCare: !AUTODISCOVERING,
-      EggLarvePupeaCare: !AUTODISCOVERING,
+      // Interior chambers: known from birth (workers emerge inside the nest).
+      QueenCare: true,
+      EggLarvePupeaCare: true,
       Collect: !AUTODISCOVERING,
-      Store: !AUTODISCOVERING,
-      Expansion: !AUTODISCOVERING,
+      Store: true,
+      Expansion: true,
       Cleaning: !AUTODISCOVERING,
     },
     geneticalPriority: {
@@ -534,3 +651,26 @@ export const getAntObject = (type: AntType): AntData => ({
   body: null,
   babylonElements: null,
 })
+
+// ---------------------------------------------------------------------------
+// Brood: eggs develop before they become workers
+// ---------------------------------------------------------------------------
+// Laid eggs are not ants yet. They are brood (egg → larva → pupa) for BROOD_DEV_MS, and they
+// need care and food on the way, like real brood:
+//   * brood-care NEED comes from the brood itself (per brood per minute), so it booms in
+//     spring and all but vanishes in winter, following the eggs actually laid;
+//   * care speeds development (well-tended brood takes BROOD_DEV_MS, neglected up to 4×
+//     longer) and neglect kills some of it;
+//   * larvae eat;
+//   * in famine the colony eats its own brood and gets part of the food back, as real
+//     colonies do: brood is the colony's buffer against starvation.
+/** Egg to adult: ~30% of a worker's mean life (fire ants: ~1 month of ~3). */
+export const BROOD_DEV_MS = 0.3 * LIFESPAN_MEAN_MS
+export const BROOD_CARE_NEED_PER_MIN = 0.35
+export const BROOD_FOOD_PER_MIN = 0.4
+/** Share of neglected brood dying per minute at zero care (scales with (1 − care)²). */
+export const BROOD_NEGLECT_DEATHS_PER_MIN = 0.12
+/** Share of brood eaten per minute while the store is empty. */
+export const BROOD_CANNIBALISM_PER_MIN = 0.25
+/** Food recovered per brood eaten, as a share of what an egg cost. */
+export const BROOD_CANNIBALISM_RETURN = 0.6
