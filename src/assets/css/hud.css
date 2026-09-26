@@ -1057,3 +1057,12 @@
     padding: 0 6px;
   }
 }
+
+/* View switch: the view shown only for now (camera below ground, or an underground task
+   highlighted) is lit but outlined dashed, so it reads as temporary. */
+.controls-season.is-auto {
+  background: color-mix(in srgb, var(--season) 10%, transparent);
+  box-shadow: none;
+  outline: 1px dashed color-mix(in srgb, var(--season) 60%, transparent);
+  outline-offset: -1px;
+}

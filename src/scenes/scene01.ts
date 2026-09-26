@@ -35,7 +35,7 @@ export const Create = (engine: Engine): Scene => {
 
   createHud({ colony, onHighlight: (task) => view.highlight(task) })
   createAbout()
-  createControls(colony, createSound(colony))
+  createControls(colony, createSound(colony), view)
 
   return scene
 }

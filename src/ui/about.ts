@@ -27,7 +27,15 @@ const SECTIONS: Section[] = [
     id: 'scene',
     title: 'Reading the 3D scene',
     body: `<ul>
-      <li><b>Nest</b>: the dome at the centre. The <b>sleep chamber</b> sits below it, joined by a tunnel.</li>
+      <li><b>Anthill</b>: the mound of dug-out soil at the centre, with its entrance on top and a disc of cleared
+        ground around it; it grows as the colony digs. Dug <b>exits</b> are small craters. Everything below ground
+        is in the <b>Underground</b> view (Controls bar).</li>
+      <li>Every spot on the ground is a <b>ring in its task's colour</b> with the real thing inside:
+        <b>food</b> is a group of fallen leaves (fewer as ants carry them off; foragers carry a piece home), the
+        <b>midden</b> a heap of refuse (soil, husks, dead nestmates) that grows with what cleaners dump and shrinks
+        as it rots. Nothing is ever placed in water, on a rock or on the anthill.</li>
+      <li><b>Protected band</b>: the blue ring around the nest, with low kerbs at its edges, where patrollers walk.
+        Brighter when protection keeps up.</li>
       <li><b>Task sites</b>: each task has its own shape on a base in its colour: a <b>palisade</b> (protection),
         the <b>queen's chamber</b>, a cluster of <b>eggs</b> (brood care), a
         <b>silo</b> (store), <b>soil heaps</b> (expansion) and a stack of <b>swept stones</b> (cleaning).
@@ -36,7 +44,7 @@ const SECTIONS: Section[] = [
       ${AUTODISCOVERING ? '<li><b>Faded sites</b> are undiscovered: they exist, but no ant knows the way yet, so there is no road.</li>' : ''}
       <li>The glowing <b>trails</b> on the ground are the routes ants actually walk (see Terrain, routes and
         trails).</li>
-      <li><b>Ants</b> take their task's colour. A <b>white glow</b> means the ant knows every site and a food spot that really still has food. The glow goes out as soon as its spot is emptied, even before the ant finds out. Dimmed ants are asleep.</li>
+      <li><b>Ants</b> take their task's colour. Newly emerged ants are <b>pale</b> (callow, as in real colonies) and darken to their full colour as they mature. <b>Brightness</b> shows how much of the map an ant truly knows (sites, and a food spot that still has food): a dim ant knows little, a bright one a lot. Half-transparent ants are asleep.</li>
       <li><b>Rings</b> from the nest: work delivered (in that task's colour) or a birth (white).
         <b>White spark</b>: two ants met and one taught the other where a site is. <b>Grey spark</b>: a death.</li>
       <li><b>Small rings</b> (only while a task is pinned): an encounter between one of its ants and another
@@ -118,12 +126,18 @@ const SECTIONS: Section[] = [
       <li><b>Food in</b>: collectors bring food home, less per trip the more of them share the site.
         <b>Food out</b>: every ant eats (big ants twice as much), and the store spoils unless Store work keeps up.
         A thin reserve raises the need to collect.</li>
-      <li><b>Births</b>: only the queen lays. Her rate follows the food reserve and how well she is cared for,
-        and every egg costs food.</li>
+      <li><b>Births</b>: only the queen lays. Her rate follows the food reserve (half speed at about ten
+        minutes of food left, so the colony stops breeding before a famine, not in it) and how well she is
+        cared for, and every egg costs food.</li>
       <li><b>Deaths</b>: each ant has its own lifespan (0.6–1.4× the mean). Work outside the nest (collection,
         exploration, protection, cleaning, expansion) adds risk, so foragers die younger. An empty store
         starves ants.</li>
-      <li><b>Sleep</b>: ants take short naps in the chamber under the nest, and meet no one while asleep.</li>
+      <li><b>Ageing follows the season</b>: in the cold the body slows down, so ants age at a quarter of the
+        pace in winter. Workers that overwinter live far longer than summer workers, which is how a real
+        colony outlasts the months when the queen barely lays.</li>
+      <li><b>Sleep</b>: ants take short naps and meet no one while asleep. The sleep chamber under the nest
+        holds about 30. When it is full, sleepers lie down in the nearest dug room set aside for sleeping
+        (see <i>Rooms</i> below).</li>
       <li>So the <b>population is not a setting</b>. It settles wherever food income, the queen and mortality
         balance out.</li>
     </ul>`,
@@ -159,8 +173,52 @@ const SECTIONS: Section[] = [
       <li>Ants lay trail as they walk: strongly when coming home with food or from finished work, faintly
         otherwise. Trails fade. Routes that work are walked more and glow brighter; detours fade away.
         The glowing paths on the ground are those trails: the colony's routes, written into the ground.</li>
+      <li>On the ground, <b>trails</b> glow warm amber (routes that work: follow) and <b>no-entry</b> marks cold
+        cyan (dead ends: avoid), since the colony reads them in opposite ways.</li>
+      <li>An ant stuck in a dead end lays a short-lived <b>"no entry"</b> mark on the pocket it was circling
+        (Pharaoh ants do this at unrewarding branches), and the ants behind it steer clear, so they don't
+        pile up in the same trap. Marks near an ant's own goal are ignored: it may have to go in there.</li>
       <li>An ant hopelessly stuck behind an obstacle eventually falls back on a planned route; how rarely
         that happens is a measure of how well the trails work.</li>
+    </ul>`,
+  },
+  {
+    id: 'roles',
+    title: 'Who does what on the ground',
+    body: `<ul>
+      <li><b>Patrollers</b> (protection) walk points spread through the <b>protected band</b>, the blue ring
+        around the nest inside the fence. The band is brighter when protection keeps up.</li>
+      <li><b>Cleaners</b> pick up the <b>debris</b> lying around the entrance (soil dug out, crumbs from
+        meals, and nestmates that died near the nest) and carry it to the midden. With nothing lying
+        around, they go straight to the midden.</li>
+      <li><b>Foragers</b> bringing food home carry a seed, and cleaners carry their piece of debris.</li>
+      <li>Underground: the <b>granary</b> fills with seed piles, the <b>nursery</b> with eggs and larvae, the
+        <b>queen</b> rests in her chamber, the sleep chamber swells with sleepers, and new galleries are
+        drawn below as the nest expands.</li>
+      <li>None of this changes how ants choose their task: that decision stays the colony's own.</li>
+    </ul>`,
+  },
+  {
+    id: 'rooms',
+    title: 'Expansion: tunnels, rooms and new exits',
+    body: `<ul>
+      <li>The nest starts as the queen's <b>founding chamber</b> (it holds a little brood and food), a first
+        store room and a first nursery. Every other room is dug.</li>
+      <li>Diggers extend the nest the way real nests grow: <b>shafts</b> wander down and <b>galleries</b> run
+        roughly level to flat chambers. Tunnels bend; diggers go for open ground, outwards and down, and
+        digging deeper is harder, so most chambers are near the top.</li>
+      <li><b>Rooms take a role when there is no space left</b>: sleeping (sleep chamber full), nursery or
+        store. One role per room, never mixed. How much a room holds depends on its size. The free room
+        nearest the others of that role is taken first; an empty room no longer needed is freed again.</li>
+      <li><b>What doesn't fit</b>: food with no store room lies in the tunnels and spoils fast; brood with no
+        nursery room is cared for worse. That crowding is what makes the colony dig: the need for
+        Expansion rises with it, so the nest grows when it is full, not by the clock.</li>
+      <li>You see the role by what is inside: sleeping ants, eggs and larvae, or seed piles. Brood carers
+        and storers go and tend those rooms too.</li>
+      <li><b>New exits</b>: now and then a shallow tunnel far enough from the nest is dug up to the surface,
+        a small crater with a dark hole. An ant going out walks underground to the entrance nearest its
+        goal and comes up there, unless the trip that way is clearly longer; coming home, it may go in
+        through an exit the same way. New trails grow from every exit, so exits open up new routes.</li>
     </ul>`,
   },
   {
@@ -189,6 +247,13 @@ const SECTIONS: Section[] = [
       <li>Speed slider: pause to 16×. <kbd>Space</kbd> pauses, <kbd>[</kbd> <kbd>]</kbd> step slower / faster.
         Everything (timers, lifespans, movement) follows the same clock.</li>
       <li>Drag to orbit, scroll to zoom. Click a site's base to fly to it, and <kbd>H</kbd> returns to the nest.</li>
+      <li><b>Surface / Underground</b> (Controls bar, or <kbd>U</kbd>): two views instead of one see-through one.
+        Surface shows the solid ground and what happens on it. Underground fades the surface to a ghost overhead
+        and shows the nest: each room is a closed shell, its upper half solid in the colour of what it is used for
+        (store green, nursery amber, sleeping blue, the queen's chamber, plain earth when free) and its lower half
+        see-through, so you see what is in it; tunnels are thin cords the ants move along. The view also goes underground by itself while the camera is below the ground or an
+        underground task (queen care, brood care, store, expansion) is highlighted; the Underground point is
+        then outlined dashed.</li>
       <li>All settings live in the <b>Controls</b> bar at the bottom; the Anthill panel only reports.</li>
       <li>The <b>speaker</b> in the Controls bar turns on quiet cues for turning points you might not be looking
         at: a food spot running out (falling note), a new food spot found (rising note), the store running

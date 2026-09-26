@@ -28,6 +28,9 @@ import {
   SLOPE_COST,
   TERRAIN,
   TRAILS,
+  NO_ENTRY_ON,
+  NO_ENTRY_AVOID,
+  NO_ENTRY_GOAL_CLEAR,
   TRAILS_ON,
   TRAIL_ALPHA,
   TRAIL_BACKTRACK_PENALTY,
@@ -38,9 +41,19 @@ import {
   TRAIL_TAU0,
   WALK_SPEED,
   groundAt,
+  isUnderground,
   SCOUTING,
   FOOD_NEWS_FRESH_MS,
+  DEBRIS,
+  DIG_NETWORK,
+  MAIN_SLEEP,
+  pickSleepRoom,
+  FOUNDING,
+  EXITS,
+  EXIT_GAIN,
+  digPathTo,
   FOOD_SPOTS,
+  getPatrolPoint,
   FoodSpot,
   foodSpotNear,
   CHECK_TIME_INTERVAL,
@@ -70,13 +83,14 @@ import {
   getSleepingInterval,
 } from '../constants'
 
-/** Below this height a leg is a tunnel (underground chambers, sleep chamber). */
-const UNDERGROUND_Y = -1
-
 export default class Ant {
   data: AntData
   reportedCollision = false
   isSleeping = false
+  /** Biological age in ms: sim time, slowed in the cold (advanced by the colony). */
+  age = 0
+  /** Where it sleeps while asleep: −1 the main chamber, else a dug room's index; null awake. */
+  private sleepRoom: number | null = null
   awakeTime: SimTimer | null = null
   checkTaskInterval: SimTimer | null = null
   sleep: SimTimer | null = null
@@ -86,6 +100,8 @@ export default class Ant {
   onKnowledgeShared?: (at: Vector3) => void
   // Visual hook: fired for every counted (cooldown-deduped) encounter.
   onEncounter?: (other: Ant) => void
+  /** A cleaner dropped its load on the midden. */
+  onDump?: () => void
 
   // --- food spots ---
   /**
@@ -102,6 +118,9 @@ export default class Ant {
   private knownEmpty = new Map<FoodSpot, number>()
   /** Food picked up at a spot and not yet delivered to the nest. */
   carried = 0
+  /** The piece of debris this cleaner is heading for, and whether it is carrying one. */
+  private debrisTarget: (typeof DEBRIS)[number] | null = null
+  carryingDebris = false
   /** Set by the Colony: take food from a spot, returns the amount actually picked up. */
   forage?: (spot: FoodSpot) => number
 
@@ -191,8 +210,8 @@ export default class Ant {
   }
 
   isEndOfLife(): boolean {
-    const lifeTime = Math.ceil(Math.abs(simNow() - this.data.bornAt))
-    return lifeTime > this.data.lifeTime && this.data.reproductionOn
+    // Biological age, advanced by the colony at the season's pace (Season.aging).
+    return this.age > this.data.lifeTime && this.data.reproductionOn
   }
 
   isReproductionTime(): boolean {
@@ -208,6 +227,18 @@ export default class Ant {
    * The food test reads the world, not the ant's belief: the glow goes out the moment its
    * spot is emptied, before the ant finds out, so outdated knowledge is visible.
    */
+  /**
+   * How much of the map this ant truly knows, 0..1: the real task sites it knows, plus a food
+   * spot that still has food. Drives its brightness (replacing the all-or-nothing white glow).
+   */
+  knowledgeShare(): number {
+    const known = this.data.behaviour.discoveredPositions
+    const sites = (Object.keys(known) as TaskName[]).filter((t) => t !== 'Collect' && !(SCOUTING && t === 'Exploration'))
+    const m = this.foodMemory
+    const food = m && m.epoch === m.spot.epoch && m.spot.remaining > 0 ? 1 : 0
+    return (sites.filter((t) => known[t]).length + food) / (sites.length + 1)
+  }
+
   hadDiscoveredAllTargets(): boolean {
     const known = this.data.behaviour.discoveredPositions
     const sitesKnown = (Object.keys(known) as TaskName[]).every(
@@ -266,11 +297,51 @@ export default class Ant {
   private targetFor(task: TaskName): Vector3 {
     // Scouts have no site to go to: exploring IS the job, so they roam the territory.
     if (task === 'Exploration' && SCOUTING) return getRandomTarget()
+    // Switching away from cleaning drops any claim on a piece of debris.
+    if (task !== 'Cleaning' && this.debrisTarget) {
+      this.debrisTarget.claimedUntil = 0
+      this.debrisTarget = null
+    }
+    // Patrollers walk the protected band around the nest.
+    if (task === 'Protection') return getPatrolPoint()
+    // Cleaners who know the midden pick up the nearest unclaimed debris first.
+    if (task === 'Cleaning' && this.data.behaviour.discoveredPositions.Cleaning && !this.carryingDebris) {
+      const pos = this.data.body.position
+      const now = simNow()
+      let best: (typeof DEBRIS)[number] | null = null
+      let bestD = Infinity
+      DEBRIS.forEach((d) => {
+        if (d.claimedUntil > now) return
+        const dist = Math.hypot(d.x - pos.x, d.z - pos.z)
+        if (dist < bestD) {
+          bestD = dist
+          best = d
+        }
+      })
+      if (best) {
+        const d = best as (typeof DEBRIS)[number]
+        d.claimedUntil = now + 2 * 60e3
+        this.debrisTarget = d
+        return new Vector3(d.x, groundAt(d.x, d.z), d.z)
+      }
+    }
     if (task === 'Collect') {
       if (!this.foodMemory && !AUTODISCOVERING && FOOD_SPOTS.length > 0) {
         this.rememberFood(FOOD_SPOTS[Math.floor(Math.random() * FOOD_SPOTS.length)])
       }
       return this.foodMemory ? this.foodMemory.at : getRandomTarget()
+    }
+    // Brood carers and storers tend every room that holds brood or food (the founding chamber
+    // and the dug rooms with that role): which one is drawn by how much each holds.
+    if ((task === 'EggLarvePupeaCare' || task === 'Store') && this.data.behaviour.discoveredPositions[task]) {
+      const role = task === 'Store' ? 'store' : 'brood'
+      const rooms = DIG_NETWORK.filter((n) => n.role === role && n.fill > 0)
+      let pick = Math.random() * rooms.reduce((sum, n) => sum + n.fill, FOUNDING[role])
+      for (const n of rooms) {
+        pick -= n.fill
+        if (pick < 0) return n.pos.clone()
+      }
+      if (FOUNDING[role] > 0) return TASK_POSITIONS.QueenCare.clone()
     }
     return !AUTODISCOVERING || this.data.behaviour.discoveredPositions[task] ? TASK_POSITIONS[task] : getRandomTarget()
   }
@@ -447,9 +518,6 @@ export default class Ant {
     const shouldSwitch = !!previousTask && this.shouldSwitchTask(previousTask, currentTask)
     if (!shouldSwitch) currentTask = previousTask
     this.setTarget = this.targetFor(currentTask)
-    if (this.hadDiscoveredAllTargets()) {
-      ; (this.data.body.material as StandardMaterial).emissiveColor = Color3.White()
-    }
     this.data.behaviour.actualTask.type = shouldSwitch ? currentTask : previousTask
     this.data.behaviour.actualTask.interactionPercentage = shouldSwitch
       ? actualTask[1]
@@ -521,9 +589,6 @@ export default class Ant {
     const task = switched ? candidate : previousTask
 
     this.setTarget = this.targetFor(task)
-    if (this.hadDiscoveredAllTargets()) {
-      ;(this.data.body.material as StandardMaterial).emissiveColor = Color3.White()
-    }
     this.data.behaviour.actualTask.type = task
     if (switched) this.data.behaviour.actualTask.interactionPercentage = Math.round(probability * 100)
     this.data.behaviour.actualTask.lastInteraction = simNow()
@@ -534,17 +599,34 @@ export default class Ant {
     // (pause() used to leave one dead animatable per sleep cycle in scene.animatables.)
     this.isSleeping = true
     this.data.animation?.stop()
-    // A random spot inside the sleep chamber under the nest.
-    const r = SLEEP_CHAMBER_RADIUS * Math.cbrt(Math.random())
+    // A random spot inside the chamber it sleeps in: the main one under the nest while it has
+    // room, else a dug sleeping room (see pickSleepRoom).
+    this.sleepRoom = pickSleepRoom(this.data.body.position)
+    const room = this.sleepRoom >= 0 ? DIG_NETWORK[this.sleepRoom] : null
+    if (room) room.sleepers++
+    else MAIN_SLEEP.sleepers++
+    const radius = room ? room.room * 0.7 : SLEEP_CHAMBER_RADIUS
+    const r = radius * Math.cbrt(Math.random())
     const theta = Math.random() * Math.PI * 2
     const phi = Math.acos(2 * Math.random() - 1)
-    this.data.body.position = SLEEP_POSITION.add(
-      new Vector3(r * Math.sin(phi) * Math.cos(theta), r * Math.cos(phi), r * Math.sin(phi) * Math.sin(theta)),
+    this.data.body.position = (room ? room.pos : SLEEP_POSITION).add(
+      // In the lower half: chambers are drawn as open bowls (squashed like the room).
+      new Vector3(r * Math.sin(phi) * Math.cos(theta), -Math.abs(r * Math.cos(phi)) * (room ? 0.6 : 0.8), r * Math.sin(phi) * Math.sin(theta)),
     )
     this.awakeTime = simSetTimeout(() => this.awake(), getNapDuration())
   }
 
+  /** Leave the sleeping place (on waking, or dying asleep). */
+  private leaveSleepRoom(): void {
+    if (this.sleepRoom === null) return
+    const room = this.sleepRoom >= 0 ? DIG_NETWORK[this.sleepRoom] : null
+    if (room) room.sleepers = Math.max(0, room.sleepers - 1)
+    else MAIN_SLEEP.sleepers = Math.max(0, MAIN_SLEEP.sleepers - 1)
+    this.sleepRoom = null
+  }
+
   awake(): void {
+    this.leaveSleepRoom()
     this.data.body.position = new Vector3(0, 0, 0)
     this.isSleeping = false
     this.moveTo()
@@ -584,6 +666,20 @@ export default class Ant {
   }
 
   findNewScope(): void {
+    // Cleaner at its debris: pick it up and carry it to the midden (not home yet).
+    const debris = this.debrisTarget
+    if (debris && !this.isArrivedToNest() && this.data.target && Math.hypot(this.data.target.x - debris.x, this.data.target.z - debris.z) < 0.5) {
+      this.debrisTarget = null
+      const i = DEBRIS.indexOf(debris)
+      if (i !== -1) DEBRIS.splice(i, 1)
+      this.carryingDebris = true
+      this.setTarget = TASK_POSITIONS.Cleaning
+      return
+    }
+    if (this.carryingDebris && !this.isArrivedToNest()) {
+      this.carryingDebris = false // dropped at the midden
+      this.onDump?.()
+    }
     if (!this.isArrivedToNest()) {
       // Coming home successful (lays strong trail): with food, or after work at a known site.
       const task = this.data.behaviour.actualTask.type
@@ -658,6 +754,17 @@ export default class Ant {
    */
   private route(from: Vector3, to: Vector3, underground: boolean): Vector3[] {
     if (underground) {
+      // The dug network: to or from a node (the digging front, or any tunnel/chamber it dug),
+      // walk down the shaft and along the network's branches.
+      const onShaftTop = (v: Vector3): boolean => Math.hypot(v.x, v.z) < 1 && v.y > -1
+      const nodeAt = (v: Vector3): number => DIG_NETWORK.findIndex((n) => Vector3.Distance(n.pos, v) < 1)
+      // Between a built chamber and a dug room: by way of the shaft top.
+      const top = new Vector3(0, 0, 0)
+      const toNode = nodeAt(to)
+      const fromNode = nodeAt(from)
+      if (toNode > 0 && fromNode > 0) return [...this.route(from, top, true), ...this.route(top, to, true).slice(1)]
+      if (toNode > 0) return [...(onShaftTop(from) ? [from] : this.route(from, top, true)), ...digPathTo(toNode).slice(1, -1), to]
+      if (fromNode > 0) return [from, ...digPathTo(fromNode).slice(1, -1).reverse(), ...(onShaftTop(to) ? [to] : this.route(top, to, true))]
       // The tunnel system: a vertical shaft under the nest, a horizontal branch to each chamber
       // at its own depth. Down the shaft, then along the branch (or the reverse).
       const shaft = (v: Vector3): Vector3 => new Vector3(0, Math.min(0, v.y), 0)
@@ -684,10 +791,21 @@ export default class Ant {
     if (!this.data.target) return
     const from = this.data.body.position.clone()
     const to = this.data.target.clone()
-    const underground = from.y < UNDERGROUND_Y || to.y < UNDERGROUND_Y
+    let underground = isUnderground(from) || isUnderground(to)
     // With trails, surface routes are chosen step by step (stepTrail); the planned route is
     // only built for tunnels, trails off, or the stuck safety valve.
-    const points = TRAILS_ON && !underground ? [from, to] : this.route(from, to, underground)
+    let points = TRAILS_ON && !underground ? [from, to] : this.route(from, to, underground)
+    // Through a dug exit when it makes the trip clearly shorter: this leg goes only as far as
+    // the exit (an intermediate leg), and the next one carries on from there.
+    let legTo = to
+    let intermediate = false
+    const exitPlan = this.planExit(from, to)
+    if (exitPlan) {
+      points = exitPlan.points
+      underground = exitPlan.underground
+      legTo = exitPlan.end
+      intermediate = !exitPlan.final
+    }
     const cum = [0]
     for (let i = 1; i < points.length; i++) {
       const a = points[i - 1]
@@ -695,6 +813,10 @@ export default class Ant {
       cum.push(cum[i - 1] + (underground ? Vector3.Distance(a, b) : Math.hypot(b.x - a.x, b.z - a.z)))
     }
     const onEnd = (): void => {
+      if (intermediate && !this.isSleeping) {
+        this.moveTo() // reached the exit: carry on towards the real target
+        return
+      }
       let isSleeping = this.isSleeping
       let isArrivedToTarget = this.isArrivedToTarget()
       console.log('callback', {
@@ -716,7 +838,7 @@ export default class Ant {
       prevCell: -1,
       visited: new Map(),
       next: null,
-      bestDist: Math.hypot(to.x - from.x, to.z - from.z),
+      bestDist: Math.hypot(legTo.x - from.x, legTo.z - from.z),
       sinceBest: 0,
       points,
       cum,
@@ -724,11 +846,92 @@ export default class Ant {
       walked: 0,
       segment: 0,
       underground,
-      to,
+      to: legTo,
       onEnd,
     }
     this.lastStep = simNow()
     this.data.animation = { stop: () => this.endLeg(), pause: () => this.endLeg() }
+  }
+
+  /**
+   * Trips between the inside (tunnels, chambers, the nest entrance) and the open ground are
+   * split where the ant comes out or goes in: a tunnel leg to an entrance, then a normal
+   * surface leg (or the reverse). The entrance is the nest's own, or a dug exit when that
+   * makes the trip clearly shorter. Movement only: the ant's target, and what it does on
+   * arrival, are unchanged.
+   *   out:  inside → (tunnels, maybe along the network) → an entrance, then the ground;
+   *   home: the ground → an entrance, then the tunnels;
+   *   in:   a dug exit → (along the network) → the nest, and on to the chamber if any.
+   */
+  private planExit(from: Vector3, to: Vector3): { points: Vector3[]; underground: boolean; end: Vector3; final?: boolean } | null {
+    const nest = new Vector3(0, 0, 0)
+    const flat = (a: Vector3, b: Vector3): number => Math.hypot(a.x - b.x, a.z - b.z)
+    const atNest = (v: Vector3): boolean => flat(v, nest) < 1 && !isUnderground(v)
+    const inside = (v: Vector3): boolean => isUnderground(v) || atNest(v)
+    const netLength = (e: (typeof EXITS)[number]): number => {
+      const path = digPathTo(e.node)
+      let d = 0
+      for (let i = 1; i < path.length; i++) d += Vector3.Distance(path[i - 1], path[i])
+      return d + Vector3.Distance(path[path.length - 1], e.surface)
+    }
+    // The ground is walked around hills, rocks and water, not in a straight line: price it by
+    // the real route to the nest, and use the same winding factor for a trip from an exit.
+    const groundLen = (v: Vector3): number => {
+      const route = TERRAIN.routeToNest(v.x, v.z)
+      let d = 0
+      let px = v.x
+      let pz = v.z
+      route.forEach((p) => {
+        d += Math.hypot(p.x - px, p.z - pz)
+        px = p.x
+        pz = p.z
+      })
+      return Math.max(d, flat(v, nest))
+    }
+    const outside = inside(to) ? from : to
+    const winding = flat(outside, nest) > 1 ? groundLen(outside) / flat(outside, nest) : 1
+    const exitHere = EXITS.find((e) => flat(e.surface, from) < 1 && !isUnderground(from))
+    const nearest = (cost: (e: (typeof EXITS)[number]) => number, direct: number): (typeof EXITS)[number] | null => {
+      let best: (typeof EXITS)[number] | null = null
+      let bestCost = direct * EXIT_GAIN
+      EXITS.forEach((e) => {
+        const c = cost(e)
+        if (c < bestCost) {
+          bestCost = c
+          best = e
+        }
+      })
+      return best
+    }
+
+    // in: came in through an exit, heading for the nest or a chamber.
+    if (exitHere && inside(to)) {
+      const tunnel = digPathTo(exitHere.node).reverse() // ends at the nest
+      const rest = isUnderground(to) ? this.route(nest, to, true).slice(1) : []
+      return { points: [from, ...tunnel, ...rest], underground: true, end: to, final: true }
+    }
+    // out: from inside to the open ground.
+    if (inside(from) && !inside(to)) {
+      // Ants come out at the entrance nearest where they are going, as long as the trip that
+      // way is not much longer (EXIT_GAIN) than over the ground from the nest.
+      const direct = flat(nest, to) * winding * EXIT_GAIN
+      const e = nearest((x) => (netLength(x) + flat(x.surface, to) * winding < direct ? flat(x.surface, to) : Infinity), flat(nest, to))
+      const toNest = isUnderground(from) ? this.route(from, nest, true) : [from]
+      if (e) return { points: [...toNest, ...digPathTo(e.node).slice(1), e.surface.clone()], underground: true, end: e.surface.clone() }
+      if (isUnderground(from)) return { points: toNest, underground: true, end: nest }
+      return null
+    }
+    // home: from the open ground to inside.
+    if (!inside(from) && inside(to)) {
+      const e = exitHere ? null : nearest(
+            (x) => (netLength(x) + flat(from, x.surface) * winding < flat(from, nest) * winding * EXIT_GAIN ? flat(from, x.surface) : Infinity),
+            flat(from, nest),
+          )
+      if (e) return { points: [from, e.surface.clone()], underground: false, end: e.surface.clone() }
+      if (isUnderground(to)) return { points: [from, nest], underground: false, end: nest }
+      return null
+    }
+    return null
   }
 
   /** End the current leg now and run its end callback (what Babylon's stop() used to do). */
@@ -811,6 +1014,17 @@ export default class Ant {
         leg.bestDist = remaining
         leg.sinceBest = 0
       } else if (++leg.sinceBest > TRAIL_STUCK_STEPS) {
+        // "No entry": mark the pocket it was circling (every cell it came back to), so the ants
+        // behind it steer clear instead of piling into the same dead end.
+        // Never near its own goal: a goal inside a pocket can only be reached through it.
+        if (NO_ENTRY_ON) {
+          const nav = TERRAIN.nav
+          const farFromGoal = (c: number): boolean => Math.hypot(nav.centerX(c) - leg.to.x, nav.centerZ(c) - leg.to.z) > NO_ENTRY_GOAL_CLEAR
+          leg.visited.forEach((times, cell) => {
+            if (times > 1 && farFromGoal(cell)) TRAILS.markNoEntry(cell, 1)
+          })
+          if (farFromGoal(leg.cell)) TRAILS.markNoEntry(leg.cell, 1)
+        }
         // Safety valve: hopelessly stuck (e.g. in a bay behind a pool): walk a planned route.
         const route = TERRAIN.routeBetween(pos.x, pos.z, leg.to.x, leg.to.z)
         if (route.length > 0) {
@@ -857,7 +1071,9 @@ export default class Ant {
       const trail = Math.pow((TRAILS.at(c) + TRAIL_TAU0) / TRAIL_TAU0, TRAIL_ALPHA)
       // Revisiting a cell on the same trip is discouraged more each time: no bouncing on the spot.
       const revisits = leg.visited.get(c) ?? 0
-      return heading * trail * (c === leg.prevCell ? TRAIL_BACKTRACK_PENALTY : 1) * Math.pow(0.25, revisits)
+      // Marks near the ant's own goal are ignored: that pocket may be where it has to go.
+      const avoid = NO_ENTRY_ON && Math.hypot(goal.x - cx, goal.z - cz) > NO_ENTRY_GOAL_CLEAR ? Math.exp(-NO_ENTRY_AVOID * TRAILS.noEntryAt(c)) : 1
+      return heading * trail * avoid * (c === leg.prevCell ? TRAIL_BACKTRACK_PENALTY : 1) * Math.pow(0.25, revisits)
     })
     const total = weights.reduce((a, b) => a + b, 0)
     let pick = Math.random() * total
@@ -952,6 +1168,7 @@ export default class Ant {
   }
 
   dispose(): void {
+    this.leaveSleepRoom()
     console.log('------ die')
     if (this.checkTaskInterval) simClearTimer(this.checkTaskInterval)
     if (this.sleep) simClearTimer(this.sleep)

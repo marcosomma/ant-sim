@@ -6,7 +6,8 @@ import './assets/css/main.css'
 const canvas = document.getElementById('renderCanvas') as HTMLCanvasElement | null
 if (!canvas) throw new Error('renderCanvas not found in DOM')
 
-const engine = new Engine(canvas)
+// Stencil on: the task highlight (HighlightLayer) needs it.
+const engine = new Engine(canvas, true, { stencil: true })
 
 window.addEventListener('resize', () => engine.resize())
 

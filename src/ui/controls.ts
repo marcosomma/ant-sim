@@ -1,6 +1,14 @@
 import { SPEED_STEPS, getSpeed, onSpeedChange, setSpeed } from '../commons/simClock'
 import { SEASONS } from '../constants'
 import type { Colony } from '../model/colony'
+import type { NestLayer } from '../scenes/colonyView'
+
+/** What the controls need from the 3D view: the Surface / Underground switch. */
+export interface ViewSwitch {
+  readonly view: NestLayer
+  setView(view: NestLayer): void
+  onViewChange(listener: (shown: NestLayer) => void): void
+}
 import '../assets/css/hud.css'
 
 // Everything you can SET lives here; the Anthill panel only REPORTS. A slim bar at the
@@ -23,7 +31,7 @@ const stepSlider = (label: string, steps: number): HTMLInputElement => {
   return slider
 }
 
-export const createControls = (colony: Colony, soundButton: HTMLButtonElement): void => {
+export const createControls = (colony: Colony, soundButton: HTMLButtonElement, viewSwitch: ViewSwitch): void => {
   const root = h('aside', 'hud controls')
   root.setAttribute('aria-label', 'Simulation controls')
 
@@ -125,10 +133,54 @@ export const createControls = (colony: Colony, soundButton: HTMLButtonElement): 
   paintSeason()
   window.setInterval(paintSeason, 500)
 
+  // --- View: surface or underground -----------------------------------------
+  // Two solid layers instead of one see-through one. The view also goes underground on its
+  // own while the camera is below the ground or an underground task is highlighted: then the
+  // Underground point is lit but hollow ("for now").
+  const layers = h('div', 'controls-group controls-seasons')
+  layers.setAttribute('role', 'group')
+  layers.setAttribute('aria-label', 'View')
+  const LAYERS: { view: NestLayer; label: string; hex: string; title: string }[] = [
+    { view: 'surface', label: 'Surface', hex: '#8fbf7a', title: 'Surface: the ground is solid; the dug nest shows as darker soil (U)' },
+    { view: 'underground', label: 'Underground', hex: '#c9a27a', title: 'Underground: rooms, tunnels and what is in them; the surface fades overhead (U)' },
+  ]
+  let shown: NestLayer = 'surface'
+  const layerButtons = LAYERS.map(({ view, label, hex, title }) => {
+    const b = h('button', 'controls-season')
+    b.type = 'button'
+    b.style.setProperty('--season', hex)
+    b.title = title
+    b.append(h('i', 'controls-season-live'), h('span', 'controls-season-name', label))
+    b.onclick = () => viewSwitch.setView(view)
+    layers.append(b)
+    return { view, b }
+  })
+  const paintLayers = (): void => {
+    layerButtons.forEach(({ view, b }) => {
+      const on = view === shown
+      b.classList.toggle('is-current', on)
+      b.classList.toggle('is-auto', on && view !== viewSwitch.view)
+      b.setAttribute('aria-pressed', String(view === viewSwitch.view))
+    })
+  }
+  viewSwitch.onViewChange((v) => {
+    shown = v
+    paintLayers()
+  })
+  window.addEventListener('keydown', (e) => {
+    if (e.target instanceof HTMLInputElement && !e.target.classList.contains('hud-slider')) return
+    if (e.key === 'u' || e.key === 'U') {
+      viewSwitch.setView(viewSwitch.view === 'surface' ? 'underground' : 'surface')
+      paintLayers()
+    }
+  })
+  layerButtons.forEach(({ b }) => b.addEventListener('click', paintLayers))
+  paintLayers()
+
   // --- Sound ----------------------------------------------------------------
   const sound = h('div', 'controls-group controls-group--end')
   sound.append(soundButton)
 
-  root.append(time, h('span', 'controls-rule'), seasons, h('span', 'controls-rule'), sound)
+  root.append(time, h('span', 'controls-rule'), seasons, h('span', 'controls-rule'), layers, h('span', 'controls-rule'), sound)
   document.body.append(root)
 }

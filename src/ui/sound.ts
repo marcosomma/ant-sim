@@ -29,7 +29,7 @@ const TICKS_PER_SECOND = 4
 /** Store counts as recovered only well above the low line, so it doesn't flicker. */
 const RECOVER_FACTOR = 1.4
 
-type CueName = 'storeEmpty' | 'storeLow' | 'spotEmptied' | 'spotFound' | 'storeRecovered' | 'season' | 'generation'
+type CueName = 'storeEmpty' | 'storeLow' | 'spotEmptied' | 'spotFound' | 'storeRecovered' | 'season' | 'generation' | 'exit'
 type TickName = 'born' | 'died'
 
 const TICKS: Record<TickName, Note> = {
@@ -44,6 +44,7 @@ const PRIORITY: Record<CueName, number> = {
   spotFound: 3,
   storeRecovered: 2,
   season: 1.5,
+  exit: 1.2,
   generation: 1,
 }
 
@@ -84,6 +85,11 @@ const CUES: Record<CueName, Note[]> = {
     { freq: 392, at: 0, dur: 0.35, gain: 0.25 },
     { freq: 440, at: 0.14, dur: 0.35, gain: 0.22 },
     { freq: 523, at: 0.28, dur: 0.6, gain: 0.22 },
+  ],
+  // Two quick rising notes: the diggers broke through to the surface.
+  exit: [
+    { freq: 330, at: 0, dur: 0.2, gain: 0.3 },
+    { freq: 523, at: 0.1, dur: 0.4, gain: 0.25 },
   ],
   // Single faint bell with an octave overtone: a new generation.
   generation: [
@@ -256,6 +262,14 @@ export const createSound = (colony: Colony): HTMLButtonElement => {
         toast({ kind: name, title: `${s} begins`, detail: detail[s] ?? '', color: color[s] ?? '#c3c2b7' })
         break
       }
+      case 'exit':
+        toast({
+          kind: name,
+          title: 'New anthill exit',
+          detail: `a tunnel broke through · ${colony.exits.length} exit${colony.exits.length === 1 ? '' : 's'} besides the nest`,
+          color: TASK_HEX.Expansion,
+        })
+        break
       case 'generation':
         toast({ kind: name, title: `Generation ${maxGeneration}`, detail: `${colony.ants.length} ants alive`, color: '#c3c2b7' })
         break
@@ -317,6 +331,11 @@ export const createSound = (colony: Colony): HTMLButtonElement => {
     // amount 0 = the spot was removed, not moved (a poorer environment doesn't replace it).
     emit('spotEmptied', amount === 0)
   })(colony.events.foodSiteMoved)
+
+  colony.events.exitDug = ((previous) => (at) => {
+    previous?.(at)
+    emit('exit')
+  })(colony.events.exitDug)
 
   window.setInterval(() => {
     if (colony.ants.length === 0) return

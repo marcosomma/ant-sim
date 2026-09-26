@@ -162,6 +162,14 @@ export const TERRAIN = createTerrain({
 /** Ground height at (x, z). */
 export const groundAt = (x: number, z: number): number => TERRAIN.heightAt(x, z)
 
+/**
+ * Is this point underground (in the nest's tunnels and chambers)? Measured against the ground
+ * AT THAT SPOT. An absolute "below −1" test dated from the flat world: on terrain, a food spot
+ * or search point in a hollow counted as underground, so ants walked a straight "tunnel"
+ * through the ground to it, across pools and all.
+ */
+export const isUnderground = (v: { x: number; y: number; z: number }): boolean => v.y < groundAt(v.x, v.z) - 1
+
 // ---------------------------------------------------------------------------
 // Trails (routes, phase 3)
 // ---------------------------------------------------------------------------
@@ -173,6 +181,12 @@ export const groundAt = (x: number, z: number): number => TERRAIN.heightAt(x, z)
 // fade. The colony's routes live in the ground.
 export const TRAILS_ON = true
 export const TRAILS = new Trails(TERRAIN)
+/** "No entry" marks where ants got stuck (see Trails.noEntry): on/off, half-life, strength of avoidance. */
+export const NO_ENTRY_ON = true
+export const NO_ENTRY_HALF_LIFE_MS = 180e3
+export const NO_ENTRY_AVOID = 3
+/** Within this distance of its goal an ant neither lays nor heeds no-entry marks. */
+export const NO_ENTRY_GOAL_CLEAR = SEARCHING_RADIUS * 1.2
 /** Trail fades by half in this much sim time. */
 export const TRAIL_HALF_LIFE_MS = 3 * 60e3
 /** Trail laid per world unit walked: coming home successful, and everyone else. */
@@ -212,6 +226,25 @@ export const SITE_FOOTPRINT = 12 * SYMBOL_SCALE // matches BASE_DIAMETER in the 
 export const SITE_SEPARATION_RATIO = 2.5
 export const MIN_SITE_DISTANCE = SITE_FOOTPRINT * SITE_SEPARATION_RATIO
 const PLACEMENT_ATTEMPTS = 60
+/** Largest drawn radius of a food spot (its patch at full size), and of the midden. */
+export const FOOD_SPOT_RADIUS = 12 * SYMBOL_SCALE
+export const MIDDEN_RADIUS = 7 * SYMBOL_SCALE
+
+/**
+ * Is a disc of radius `r` at (x, z) clear of the environment? Every point of it on dry,
+ * walkable ground, and clear of every rock AS DRAWN (the outcrops are drawn up to ~1.2× their
+ * walking radius). What stands on the ground (food, the midden, exits, debris) is placed only
+ * where this holds, so nothing sits in a pool or half inside a rock.
+ */
+export const clearGround = (x: number, z: number, r: number): boolean => {
+  if (!TERRAIN.passable(x, z)) return false
+  for (let k = 0; k < 8; k++) {
+    const px = x + Math.cos((k * Math.PI) / 4) * r
+    const pz = z + Math.sin((k * Math.PI) / 4) * r
+    if (!TERRAIN.passable(px, pz) || TERRAIN.heightAt(px, pz) < TERRAIN.waterLevel + 0.3) return false
+  }
+  return TERRAIN.rocks.every((q) => Math.hypot(q.x - x, q.z - z) >= q.r * 1.25 + r)
+}
 
 /** Signed octant per task: keeps the original spread, now only as a direction. */
 const SITE_OCTANT: Record<TaskName, [number, number, number]> = {
@@ -264,24 +297,172 @@ export const placeInOctant = (
 // Sites used to float at random heights (±~127). Now the world has a ground (y = 0) and
 // jobs sit where they happen in a real nest:
 //   surface (y = 0): food spots, the guard post (Protection), the midden (Cleaning);
-//   underground, around the tunnel under the dome: the queen's chamber, the nursery (brood),
-//   the granary (store), and the digging front (expansion) just under the surface at the
-//   nest's edge, which is where frozen ground bites. The sleep chamber is deepest.
+//   underground, around the tunnel under the dome: the queen's (founding) chamber, the
+//   first nursery (brood) and store rooms, and the digging front (expansion) just under the
+//   surface at the nest's edge, which is where frozen ground bites. The sleep chamber is
+//   deepest. The nursery and store positions follow the rooms that hold the most brood/food.
 // Interior sites are known from birth: workers emerge inside the nest.
 export const SURFACE_Y = 0
 export const INTERIOR_TASKS: TaskName[] = ['QueenCare', 'EggLarvePupeaCare', 'Store', 'Expansion']
+/**
+ * VISUAL ONLY: the nest is drawn growing downward as it expands (galleries under the nest,
+ * depth in SEARCHING_RADIUS units). The digging front ants walk to stays where it is.
+ */
+/**
+ * Expansion digs a RANDOM tunnel network inside the territory. Every DIG_WORK_PER_TUNNEL of
+ * digging work, a new tunnel grows from a random point of the network (the shaft or any earlier
+ * tunnel), in a random direction and over a random length, staying underground, inside the
+ * territory and clear of the chambers. The digging front is always the newest tip, and diggers
+ * walk the network (down the shaft, along the branches) to reach it.
+ */
+export const DIG_WORK_PER_TUNNEL = 40
+/** The network stops growing here (a full nest keeps working its existing tunnels). */
+export const DIG_NETWORK_MAX = 80
+export const DIG_TUNNEL_LENGTH: [number, number] = [SEARCHING_RADIUS * 0.35, SEARCHING_RADIUS * 0.8]
+/**
+ * Real nests are mostly vertical (casts of harvester and fire ant nests): shafts wander
+ * downward, and flat chambers branch off them at depth. So a new tunnel is either a SHAFT
+ * (mostly down, a little sideways, ending in a small junction) or a GALLERY (roughly level,
+ * ending in a chamber). The nest may go this deep.
+ */
+export const DIG_SHAFT_SHARE = 0.35
+export const DIG_SHAFT_DROP: [number, number] = [SEARCHING_RADIUS * 0.35, SEARCHING_RADIUS * 0.8]
+export const DIG_MAX_DEPTH = SEARCHING_RADIUS * 2.8
+/** Digging deeper gets harder: a place this deep counts 1/e as much when choosing where to dig. */
+export const DIG_DEPTH_SCALE = SEARCHING_RADIUS * 3
+/** Vertical distance counts this many times horizontal when looking for open ground to dig. */
+export const DIG_VERTICAL_ROOM = 2.5
+/** How far a tunnel wanders off the straight line, as a share of its length. */
+export const DIG_WANDER = 0.25
+export interface DigNode {
+  pos: Vector3
+  /** Radius of the chamber dug at this tip (0 for the shaft root). */
+  room: number
+  /** Index of the node this tunnel grew from; −1 for the root on the shaft. */
+  parent: number
+  /** Bends along the tunnel from the parent to here (tunnels are dug wandering, not straight). */
+  via: Vector3[]
+  /** What the chamber is used for, one role per room; null while it is free. */
+  role: RoomRole | null
+  /** Ants asleep in it (role 'sleep'). */
+  sleepers: number
+  /** Brood items or food units kept in it (roles 'brood' / 'store'). */
+  fill: number
+}
+/** Live network, owned by the Colony; ants and the view read it. Node 0 is on the shaft. */
+export const DIG_NETWORK: DigNode[] = []
+
+/**
+ * Dug chambers take over work from the built rooms when those get full: ants sleep in them,
+ * brood is moved into them, food is stored in them. One role per room, never mixed; what a
+ * room holds depends on its size. The colony assigns free rooms (the one nearest the main room
+ * of that role) when there is overflow, and frees them again when empty and no longer needed.
+ */
+export type RoomRole = 'sleep' | 'brood' | 'store'
+/** What one standard room (the size of the built nursery, radius 0.32R) holds. */
+export const ROOM_UNIT_HOLDS: Record<RoomRole, number> = { sleep: 30, brood: 60, store: 2500 }
+const ROOM_UNIT_RADIUS = SEARCHING_RADIUS * 0.32
+/** A dug chamber (squashed to 0.6 of its height) in standard-room units. */
+export const roomUnits = (radius: number): number => (0.6 * radius ** 3) / ROOM_UNIT_RADIUS ** 3
+export const roomCapacity = (node: DigNode, role: RoomRole): number => ROOM_UNIT_HOLDS[role] * roomUnits(node.room)
+/**
+ * The founding chamber: the queen's own, the one room a nest starts with. It holds a little
+ * brood and a little food; every other store and nursery is a dug room. `brood` / `store` are
+ * what it holds right now (set by the colony).
+ */
+export const FOUNDING_HOLDS: Record<RoomRole, number> = { sleep: 0, brood: 15, store: 300 }
+export const FOUNDING = { brood: 0, store: 0 }
+/** The colony starts as a going concern: a store room and a nursery are already dug. */
+export const START_ROOM_RADIUS: Record<'brood' | 'store', number> = { store: SEARCHING_RADIUS * 0.4, brood: SEARCHING_RADIUS * 0.34 }
+/**
+ * What doesn't fit. Food with no store room to go in lies in the tunnels and spoils fast
+ * (share per minute, Store work doesn't help); brood with no nursery room is crowded in and
+ * gets only this share of the care.
+ */
+export const UNSTORED_SPOIL_PER_MIN = 0.05
+export const UNHOUSED_BROOD_CARE = 0.3
+/**
+ * Digging follows crowding: the need to dig rises with the share of food, brood and sleepers
+ * that has no room (0..1 each, summed), per minute.
+ */
+export const EXPANSION_CROWDING_NEED_PER_MIN = 8
+/** Ants asleep in the main sleep chamber under the nest (which holds one standard room's worth). */
+export const MAIN_SLEEP = { sleepers: 0 }
+
+/**
+ * Where an ant falling asleep lies down: the main chamber while it has room, else the nearest
+ * dug sleeping room with space, else the main chamber anyway (crowded). −1 = main chamber.
+ */
+export const pickSleepRoom = (at: Vector3): number => {
+  if (MAIN_SLEEP.sleepers < ROOM_UNIT_HOLDS.sleep) return -1
+  let best = -1
+  let bestD = Infinity
+  DIG_NETWORK.forEach((n, i) => {
+    if (n.role !== 'sleep' || n.sleepers >= roomCapacity(n, 'sleep')) return
+    const d = Vector3.Distance(n.pos, at)
+    if (d < bestD) {
+      bestD = d
+      best = i
+    }
+  })
+  return best
+}
+
+/**
+ * New exits: now and then a shallow tunnel tip far enough from the nest is dug up to the
+ * surface. Ants going out take the exit nearest their destination (walking there underground)
+ * and ants coming home may come in through one, so each exit opens new routes on the surface.
+ */
+export interface NestExit {
+  /** The dug network node the exit rises from. */
+  node: number
+  /** Where it opens on the ground. */
+  surface: Vector3
+}
+export const EXITS: NestExit[] = []
+export const EXITS_MAX = 5
+export const EXIT_CHANCE = 0.5
+export const EXIT_MIN_FROM_NEST = SEARCHING_RADIUS * 1.2
+export const EXIT_MIN_APART = SEARCHING_RADIUS * 1.5
+/** Drawn radius of an exit's crater. */
+export const EXIT_RADIUS = 3 * SYMBOL_SCALE
+/** A tip must be this shallow (below the ground there) to be dug up into an exit. */
+export const EXIT_MAX_DEPTH = SEARCHING_RADIUS * 0.8
+/** An exit is used if the trip that way is at most this much longer than from the nest (ants go out near their goal). */
+export const EXIT_GAIN = 1.1
+/** A tip becomes an exit only if its tunnel route is at most this many times the straight line. */
+export const EXIT_MAX_WINDING = 1.5
+
+/** Waypoints from the nest, down the shaft and along the network, to node `i`. */
+export const digPathTo = (i: number): Vector3[] => {
+  const chain: Vector3[] = []
+  // Built backwards (tip → root), each tunnel as its end then its bends; reversed at the end.
+  for (let k = i; k >= 0; k = DIG_NETWORK[k].parent) chain.push(DIG_NETWORK[k].pos, ...[...DIG_NETWORK[k].via].reverse())
+  return [new Vector3(0, 0, 0), ...chain.reverse().map((p) => p.clone())]
+}
+/** The midden rots: half of it is gone after this long. */
+export const MIDDEN_HALF_LIFE_MS = 20 * 60e3
+export const DIG_DEPTH_START = 0.25
+export const DIG_DEPTH_RANGE = 0.3
 
 /** A point on the surface at a random angle and radius in [minR, maxR], clear of `taken`. */
-export const placeOnSurface = (taken: Vector3[], minR: number, maxR: number, attempts = PLACEMENT_ATTEMPTS): Vector3 => {
-  let best = new Vector3(minR, groundAt(minR, 0), 0)
+export const placeOnSurface = (
+  taken: Vector3[],
+  minR: number,
+  maxR: number,
+  clearR = FOOD_SPOT_RADIUS,
+  attempts = PLACEMENT_ATTEMPTS,
+): Vector3 => {
+  let best: Vector3 | null = null
   let bestClearance = -1
-  for (let i = 0; i < attempts; i++) {
+  // Keep drawing until some clear ground turns up: a spot is never placed in water or rock.
+  for (let i = 0; i < attempts || (!best && i < attempts * 20); i++) {
     const a = Math.random() * Math.PI * 2
     // Uniform over the annulus' AREA, not its radius, so spots don't bunch up near the nest.
     const rr = Math.sqrt(minR * minR + Math.random() * (maxR * maxR - minR * minR))
     const cx = Math.cos(a) * rr
     const cz = Math.sin(a) * rr
-    if (!TERRAIN.passable(cx, cz)) continue // not in water, not in rock
+    if (!clearGround(cx, cz, clearR)) continue // its whole footprint on dry ground, clear of rocks
     const candidate = new Vector3(cx, groundAt(cx, cz), cz)
     if (farEnough(candidate, taken, MIN_SITE_DISTANCE)) return candidate
     const clearance = taken.length === 0 ? Infinity : Math.min(...taken.map((p) => Vector3.Distance(candidate, p)))
@@ -290,7 +471,7 @@ export const placeOnSurface = (taken: Vector3[], minR: number, maxR: number, att
       best = candidate
     }
   }
-  return best
+  return best ?? new Vector3(minR, groundAt(minR, 0), 0)
 }
 
 /** Mutated in place on regeneration, so every live reader picks the new position up. */
@@ -309,7 +490,7 @@ export const TASK_POSITIONS: Record<TaskName, Vector3> = (() => {
   const placed = Object.values(positions)
   positions.Protection = placeOnSurface(placed, 1.4 * R, 1.8 * R)
   placed.push(positions.Protection)
-  positions.Cleaning = placeOnSurface(placed, 2.5 * R, 3.5 * R)
+  positions.Cleaning = placeOnSurface(placed, 2.5 * R, 3.5 * R, MIDDEN_RADIUS)
   placed.push(positions.Cleaning)
   // No real place for these any more (scouts roam; food lives in FOOD_SPOTS), kept on the surface.
   positions.Exploration = placeOnSurface(placed, 3 * R, 4 * R)
@@ -396,13 +577,13 @@ export const SLEEP_CHAMBER_RADIUS = 10 * SYMBOL_SCALE
 // colony a carrying capacity instead of "grow to the cap or die".
 
 export const ECONOMY_TICK_MS = 1e3
-export const FOOD_PER_DELIVERY = 14 // × the ant's delivered work value
+export const FOOD_PER_DELIVERY = 22 // × the ant's delivered work value
 export const FORAGING_PATCH = 40 // collectors at which each trip yields half
 export const FOOD_PER_ANT_PER_MIN: Record<AntType, number> = { W: 1, P: 2 }
 export const SPOILAGE_PER_MIN = 0.02 // share of the store lost per minute with no Store work
 export const INITIAL_FOOD_MINUTES = 30 // starting reserve, in minutes of colony consumption
 export const QUEEN_EGGS_PER_MIN_MAX = 24
-export const QUEEN_FOOD_HALF_RESERVE_MIN = 3 // reserve (minutes) at which laying runs at half speed
+export const QUEEN_FOOD_HALF_RESERVE_MIN = 10 // reserve (minutes) at which laying runs at half speed
 export const EGG_FOOD_COST = 3
 export const STARVATION_DEATHS_PER_MIN = 0.1 // share of the colony dying per minute with an empty store
 export const HUNGER_FEEDBACK = true // low reserve raises Collect need (Gordon: foraging tracks returns)
@@ -488,6 +669,11 @@ export interface Season {
   rest: number
   /** × spoilage of the store (heat spoils food). */
   spoil: number
+  /**
+   * × how fast ants age. Cold slows the body down: workers that overwinter live far longer
+   * than summer workers, which is how a colony gets through the months the queen barely lays.
+   */
+  aging: number
   /** Ground-grid tint, a faint cue in 3D. */
   tint: [number, number, number]
   /** 0..1 how frozen the ground is (EXPERIMENT_FROZEN_GROUND). */
@@ -497,10 +683,10 @@ export interface Season {
 }
 
 export const SEASONS: Season[] = [
-  { name: 'Spring', food: 1.5, eat: 1, lay: 1.2, rest: 1, spoil: 1, tint: [0.3, 0.36, 0.28], frost: 0, ground: [0.13, 0.2, 0.11] },
-  { name: 'Summer', food: 2, eat: 1.1, lay: 1, rest: 1, spoil: 1.5, tint: [0.38, 0.34, 0.24], frost: 0, ground: [0.21, 0.2, 0.1] },
-  { name: 'Autumn', food: 0.75, eat: 1, lay: 0.6, rest: 1.8, spoil: 1, tint: [0.38, 0.28, 0.2], frost: 0.15, ground: [0.21, 0.13, 0.08] },
-  { name: 'Winter', food: 0.25, eat: 0.4, lay: 0.1, rest: 6, spoil: 0.3, tint: [0.3, 0.33, 0.4], frost: 1, ground: [0.15, 0.17, 0.21] },
+  { name: 'Spring', food: 1.5, eat: 1, lay: 1.2, rest: 1, spoil: 1, aging: 1, tint: [0.3, 0.36, 0.28], frost: 0, ground: [0.13, 0.2, 0.11] },
+  { name: 'Summer', food: 2, eat: 1.1, lay: 1, rest: 1, spoil: 1.5, aging: 1.1, tint: [0.38, 0.34, 0.24], frost: 0, ground: [0.21, 0.2, 0.1] },
+  { name: 'Autumn', food: 0.75, eat: 1, lay: 0.6, rest: 1.8, spoil: 1, aging: 0.7, tint: [0.38, 0.28, 0.2], frost: 0.15, ground: [0.21, 0.13, 0.08] },
+  { name: 'Winter', food: 0.25, eat: 0.4, lay: 0.1, rest: 6, spoil: 0.3, aging: 0.25, tint: [0.3, 0.33, 0.4], frost: 1, ground: [0.15, 0.17, 0.21] },
 ]
 
 /**
@@ -532,6 +718,39 @@ export const foodSpotTarget = (reach: number, availability = 1): number =>
  */
 export const FOOD_NEWS_FRESH_MS = 3 * 60e3
 
+// ---------------------------------------------------------------------------
+// Roles on the ground (movement only: task choice is untouched)
+// ---------------------------------------------------------------------------
+// Protection is an AREA: patrollers walk to points spread through a band around the nest,
+// inside the territory. The Colony keeps the band's outer edge in step with the territory.
+export const PATROL_BAND = { inner: 0, outer: 0 }
+/** A random dry point in the patrol band. */
+export const getPatrolPoint = (): Vector3 => {
+  let x = 0
+  let z = 0
+  for (let i = 0; i < 12; i++) {
+    const a = Math.random() * Math.PI * 2
+    const r = Math.sqrt(PATROL_BAND.inner ** 2 + Math.random() * (PATROL_BAND.outer ** 2 - PATROL_BAND.inner ** 2))
+    x = Math.cos(a) * r
+    z = Math.sin(a) * r
+    if (TERRAIN.passable(x, z)) break
+  }
+  return new Vector3(x, groundAt(x, z), z)
+}
+
+// Dirt is physical: spoil from digging, scraps from food, and ants that die near the nest
+// lie around it until a cleaner carries them to the midden. (The Cleaning NEED is unchanged;
+// this is where cleaners walk.)
+export interface Debris {
+  x: number
+  z: number
+  kind: 'spoil' | 'scrap' | 'corpse'
+  /** A cleaner on its way to it, until this sim time. */
+  claimedUntil: number
+}
+export const DEBRIS: Debris[] = []
+export const DEBRIS_MAX = 40
+
 /** Live registry, owned by the Colony; ants and the view read it. */
 export const FOOD_SPOTS: FoodSpot[] = []
 
@@ -552,6 +771,8 @@ export const foodSpotNear = (pos: Vector3): FoodSpot | null =>
 // a 0..1 saturating measure of how much Expansion work the colony has banked.
 export const NEST_BASE_DIAMETER = 14 * SYMBOL_SCALE
 export const NEST_MAX_DIAMETER = 44 * SYMBOL_SCALE
+/** The anthill's cleared ground reaches this many times the mound's radius (nothing is placed on it). */
+export const NEST_CLEARING = 1.5
 export const EXPANSION_HALF_LEVEL = 400 // banked Expansion work at which the nest is half grown
 export const FORAGE_RANGE_AT_FULL_EXPANSION = 2.6 // multiplies the placement radius
 
@@ -702,7 +923,8 @@ export const getAntObject = (type: AntType): AntData => ({
     },
     rankTasks: {},
     discoveredPositions: {
-      Protection: !AUTODISCOVERING,
+      // The patrol band is around the nest: known from birth, like the interior.
+      Protection: true,
       Exploration: !AUTODISCOVERING,
       // Interior chambers: known from birth (workers emerge inside the nest).
       QueenCare: true,

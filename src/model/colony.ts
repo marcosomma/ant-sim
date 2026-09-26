@@ -47,10 +47,14 @@ import {
   BROOD_NEGLECT_DEATHS_PER_MIN,
   EXPERIMENT_FROZEN_GROUND,
   FROST_DIG_LOSS,
+  DIG_DEPTH_RANGE,
+  DIG_DEPTH_START,
   FOOD_AVAILABILITY,
   TRAILS,
   TRAILS_ON,
   TRAIL_HALF_LIFE_MS,
+  NO_ENTRY_ON,
+  NO_ENTRY_HALF_LIFE_MS,
   SEASONS,
   SEASON_BLEND,
   SEASON_MODE,
@@ -58,13 +62,54 @@ import {
   SeasonMode,
   YEAR_MS,
   setRestFactor,
+  DEBRIS,
+  DIG_NETWORK,
+  ROOM_UNIT_HOLDS,
+  RoomRole,
+  DigNode,
+  roomCapacity,
+  EXITS,
+  EXITS_MAX,
+  EXIT_CHANCE,
+  EXIT_MAX_DEPTH,
+  EXIT_MIN_APART,
+  EXIT_MIN_FROM_NEST,
+  EXIT_MAX_WINDING,
+  digPathTo,
+  DIG_NETWORK_MAX,
+  DIG_TUNNEL_LENGTH,
+  DIG_SHAFT_SHARE,
+  DIG_SHAFT_DROP,
+  DIG_MAX_DEPTH,
+  DIG_WANDER,
+  DIG_DEPTH_SCALE,
+  DIG_VERTICAL_ROOM,
+  DIG_WORK_PER_TUNNEL,
+  SLEEP_POSITION,
+  MIDDEN_HALF_LIFE_MS,
+  FOUNDING,
+  FOUNDING_HOLDS,
+  START_ROOM_RADIUS,
+  UNSTORED_SPOIL_PER_MIN,
+  UNHOUSED_BROOD_CARE,
+  EXPANSION_CROWDING_NEED_PER_MIN,
+  DEBRIS_MAX,
   FOOD_SPOTS,
+  PATROL_BAND,
+  TERRAIN,
+  groundAt,
+  isUnderground,
   FoodSpot,
   INCREASE_MAIN_TASK,
   foodSpotTarget,
   SEARCHING_RADIUS,
   SITE_RADIUS_MAX,
   placeOnSurface,
+  clearGround,
+  FOOD_SPOT_RADIUS,
+  MIDDEN_RADIUS,
+  EXIT_RADIUS,
+  NEST_CLEARING,
   rollFoodAmount,
 } from '../constants'
 
@@ -77,6 +122,8 @@ export interface ColonyEvents {
   born?: () => void
   died?: (at: Vector3) => void
   knowledgeShared?: (at: Vector3) => void
+  /** Diggers broke through to the surface: a new exit. */
+  exitDug?: (at: Vector3) => void
   /** A new season began (cycle mode). */
   seasonChanged?: (name: Season['name']) => void
   /** A counted encounter, reported by `ant` (each side of a meeting reports it once). */
@@ -130,6 +177,9 @@ export class Colony {
     EggLarvePupeaCare: baseNeed(),
   }
   readonly events: ColonyEvents = {}
+  /** Room for each role (founding / sleep chamber + dug rooms with that role), and what has none. */
+  readonly roomSpace: Record<RoomRole, number> = { sleep: 0, brood: 0, store: 0 }
+  readonly unhoused: Record<RoomRole, number> = { sleep: 0, brood: 0, store: 0 }
 
   births = 0
   deaths = 0
@@ -164,7 +214,7 @@ export class Colony {
     tint: [number, number, number]
     ground: [number, number, number]
   } = {
-    name: 'None', food: 1, eat: 1, lay: 1, rest: 1, spoil: 1, frost: 0, progress: 0, tint: [0.3, 0.3, 0.28], ground: [0.1, 0.1, 0.1],
+    name: 'None', food: 1, eat: 1, lay: 1, rest: 1, spoil: 1, aging: 1, frost: 0, progress: 0, tint: [0.3, 0.3, 0.28], ground: [0.1, 0.1, 0.1],
   }
   private seasonStart = 0
   private nextSpotId = 0
@@ -230,6 +280,14 @@ export class Colony {
   ) {}
 
   start(count = INITIAL_ANTS): void {
+    this.updatePatrolBand()
+    // The network starts as the shaft (node 0) and the first digging front off it.
+    const front = TASK_POSITIONS.Expansion
+    DIG_NETWORK.push({ pos: new Vector3(0, front.y, 0), parent: -1, room: 0, role: null, sleepers: 0, fill: 0, via: [] })
+    // The first store room and nursery, already dug where the built granary and nursery were.
+    DIG_NETWORK.push({ pos: TASK_POSITIONS.Store.clone(), parent: 0, room: START_ROOM_RADIUS.store, role: 'store', sleepers: 0, fill: 0, via: [] })
+    DIG_NETWORK.push({ pos: TASK_POSITIONS.EggLarvePupeaCare.clone(), parent: 0, room: START_ROOM_RADIUS.brood, role: 'brood', sleepers: 0, fill: 0, via: [] })
+    DIG_NETWORK.push({ pos: front.clone(), parent: 0, room: SEARCHING_RADIUS * 0.2, role: null, sleepers: 0, fill: 0, via: [] })
     this.seasonStart = simNow()
     this.updateSeason()
     this.ensureFoodSpots()
@@ -278,13 +336,22 @@ export class Colony {
       // EXPERIMENTAL frozen ground: digging achieves less when the soil is frozen.
       const work = previousTask === 'Expansion' ? addToPreviousTask * this.digFactor : addToPreviousTask
       needs[previousTask].actual += work
-      if (previousTask === 'Expansion') this.expansionWork += work
+      if (previousTask === 'Expansion') {
+        this.expansionWork += work
+        this.advanceDiggingFront(work)
+      }
       needs.Collect.need += 0.1
       needs.QueenCare.need += 0.05
       // (Brood care no longer gets a bump per delivery: its need comes from the brood.)
 
       // Food: whatever the ant picked up at its spot arrives now (see forage below).
-      if (previousTask === 'Collect') this.intakeThisTick += ant.dropCarried()
+      if (previousTask === 'Collect') {
+        const got = ant.dropCarried()
+        this.intakeThisTick += got
+        if (got > 0 && Math.random() < 0.06) this.dropDebris('scrap') // crumbs from the meal
+      }
+      // Soil dug out comes up: one heap of spoil per few digging trips.
+      if (previousTask === 'Expansion' && work > 0 && Math.random() < 0.1) this.dropDebris('spoil')
 
       // Finishing work creates work elsewhere. Routed on `previousTask`, the task that was
       // actually just done, and scaled by how much of it was done, so the two halves of this
@@ -307,6 +374,9 @@ export class Colony {
       // zeroed everyone's Collect rank, and the colony starved next to known food.
       needs[ant.data.behaviour.actualTask.type].dedicated_ants--
       bump(needs.Expansion, -1)
+      // An ant that dies in or near the nest is a corpse to carry out; one lost in the field isn't.
+      const at = ant.data.body.position
+      if (isUnderground(at) || Math.hypot(at.x, at.z) < 1.8 * SEARCHING_RADIUS) this.dropDebris('corpse')
       this.events.died?.(ant.data.body.position)
     }
 
@@ -318,7 +388,10 @@ export class Colony {
     // more than is lying there, and the trip that empties it sends it elsewhere.
     ant.forage = (spot) => {
       const value = INCREASE_MAIN_TASK * ant.data.behaviour.geneticalPriority.Collect
-      const wanted = (FOOD_PER_DELIVERY * value) / (1 + this.collectors / FORAGING_PATCH)
+      // What one trip yields follows the environment's richness (season × climate): plentiful
+      // seeds in summer, scarce ones in winter. A fixed yield made the seasons run backwards:
+      // deficits in spring/summer, a surplus in winter while the colony barely eats.
+      const wanted = (FOOD_PER_DELIVERY * value * this.effectiveFood) / (1 + this.collectors / FORAGING_PATCH)
       const taken = Math.min(wanted, spot.remaining)
       spot.remaining -= taken
       if (spot.remaining <= 0) this.respawnFoodSpot(spot)
@@ -326,6 +399,7 @@ export class Colony {
     }
     ant.onKnowledgeShared = (at) => this.events.knowledgeShared?.(at)
     ant.onEncounter = (other) => this.events.encountered?.(ant, other)
+    ant.onDump = () => (this.midden += 1)
     // Kept at the old constant (300): nestIsOverreacting compares against it.
     ant.setTotalAnts = WORLD_SCALE
     ant.setReproduction = REPRODUCTION_ON
@@ -390,11 +464,200 @@ export class Colony {
     this.ensureFoodSpots()
   }
 
+  /** Debris appears on the ground just outside the nest entrance. */
+  private dropDebris(kind: 'spoil' | 'scrap' | 'corpse'): void {
+    if (DEBRIS.length >= DEBRIS_MAX) return
+    const a = Math.random() * Math.PI * 2
+    const r = SEARCHING_RADIUS * (0.55 + Math.random() * 0.7)
+    const x = Math.cos(a) * r
+    const z = Math.sin(a) * r
+    if (!clearGround(x, z, SEARCHING_RADIUS * 0.05)) return
+    DEBRIS.push({ x, z, kind, claimedUntil: 0 })
+  }
+
+  /** Refuse on the midden (loads dumped, rotting away slowly). */
+  midden = 0
+  /** The tunnel network (read by ants and the view). */
+  readonly digNetwork = DIG_NETWORK
+  /** Exits dug up from the network, besides the nest's own entrance. */
+  readonly exits = EXITS
+  private digWorkAcc = 0
+
+  /** Digging work banks up; every DIG_WORK_PER_TUNNEL of it opens a new random tunnel. */
+  private advanceDiggingFront(work: number): void {
+    this.digWorkAcc += work
+    while (this.digWorkAcc >= DIG_WORK_PER_TUNNEL) {
+      this.digWorkAcc -= DIG_WORK_PER_TUNNEL
+      this.digNewTunnel()
+    }
+  }
+
+  /**
+   * A new tunnel and chamber. Many candidates are tried, each growing from a random point of
+   * the network in a random direction; any whose chamber would overlap another chamber (dug or
+   * built) is discarded, as is anything above ground, outside the territory or below the sleep
+   * chamber. Of the rest, the one reaching FARTHEST from the nest wins, so the network keeps
+   * pushing outward into free ground. It becomes the digging front.
+   */
+  private digNewTunnel(): void {
+    if (DIG_NETWORK.length >= DIG_NETWORK_MAX) return
+    const R = SEARCHING_RADIUS
+    const reach = 0.8 * SITE_RADIUS_MAX * this.foodReach
+    const built = [TASK_POSITIONS.QueenCare, SLEEP_POSITION]
+    let best: { pos: Vector3; parent: number; room: number; far: number; via: Vector3[] } | null = null
+    for (let attempt = 0; attempt < 40; attempt++) {
+      const parent = Math.floor(Math.random() * DIG_NETWORK.length)
+      const from = DIG_NETWORK[parent].pos
+      const shaft = Math.random() < DIG_SHAFT_SHARE
+      const a = Math.random() * Math.PI * 2
+      // A shaft drops and drifts a little sideways; a gallery runs roughly level (slightly down).
+      const len = shaft
+        ? Math.random() * 0.35 * R
+        : DIG_TUNNEL_LENGTH[0] + Math.random() * (DIG_TUNNEL_LENGTH[1] - DIG_TUNNEL_LENGTH[0])
+      const dy = shaft
+        ? -(DIG_SHAFT_DROP[0] + Math.random() * (DIG_SHAFT_DROP[1] - DIG_SHAFT_DROP[0]))
+        : (Math.random() * 0.2 - 0.12) * R
+      const x = from.x + Math.cos(a) * len
+      const z = from.z + Math.sin(a) * len
+      const y = from.y + dy
+      if (Math.hypot(x, z) > reach) continue // inside the territory
+      if (y > groundAt(x, z) - 0.15 * R || y < -DIG_MAX_DEPTH) continue // underground, not too deep
+      // The tunnel wanders: two bends pushed off the straight line, at random.
+      const end = new Vector3(x, y, z)
+      const span = Vector3.Distance(from, end)
+      const via = [1 / 3, 2 / 3].map((t) =>
+        Vector3.Lerp(from, end, t).add(
+          new Vector3(Math.random() - 0.5, (Math.random() - 0.5) * (shaft ? 1 : 0.4), Math.random() - 0.5).scale(2 * DIG_WANDER * span),
+        ),
+      )
+      // Shafts end in a small junction; galleries mostly in a small chamber, now and then a large one.
+      const room = shaft
+        ? R * (0.12 + Math.random() * 0.08)
+        : R * (Math.random() < 0.3 ? 0.3 + Math.random() * 0.15 : 0.15 + Math.random() * 0.1)
+      const clear = (c: Vector3, r: number): boolean => Math.hypot(c.x - x, c.y - y, c.z - z) >= room + r + 0.1 * R
+      if (!built.every((c) => clear(c, 0.45 * R))) continue // no overlap with the built chambers
+      if (!DIG_NETWORK.every((n) => clear(n.pos, n.room))) continue // nor with any dug one
+      // The whole tunnel must stay underground, also where the ground dips between its ends.
+      const line = [from, ...via, end]
+      let buried = true
+      for (let seg = 1; seg < line.length && buried; seg++) {
+        for (let k = 1; k <= 4 && buried; k++) {
+          const p = Vector3.Lerp(line[seg - 1], line[seg], k / 4)
+          if (p.y > groundAt(p.x, p.z) - 0.1 * R && Math.hypot(p.x, p.z) > 1) buried = false
+        }
+      }
+      if (!buried) continue
+      // Push for open ground: as far from the rest of the nest as possible, and outwards, with
+      // some randomness (real digging is not optimal). Deeper is harder (real nests have most
+      // of their chambers near the top and thin out with depth).
+      // Vertical room counts more: the nest is as deep as it is wide, the territory much wider.
+      const open = Math.min(...DIG_NETWORK.map((n) => Math.hypot(n.pos.x - x, (n.pos.y - y) * DIG_VERTICAL_ROOM, n.pos.z - z)))
+      const far = (open + 0.15 * Math.hypot(x, z)) * Math.exp(-Math.abs(y) / DIG_DEPTH_SCALE) * (0.6 + 0.8 * Math.random())
+      if (!best || far > best.far) best = { pos: end, parent, room, far, via }
+    }
+    if (!best) return // no free ground this time: the front stays where it is
+    DIG_NETWORK.push({ pos: best.pos, parent: best.parent, room: best.room, role: null, sleepers: 0, fill: 0, via: best.via })
+    TASK_POSITIONS.Expansion.copyFrom(best.pos)
+    this.maybeDigExit(DIG_NETWORK.length - 1)
+  }
+
+  /** A shallow tip far from the nest (and from other exits) may be dug up into a new exit. */
+  private maybeDigExit(node: number): void {
+    if (EXITS.length >= EXITS_MAX || Math.random() > EXIT_CHANCE) return
+    const p = DIG_NETWORK[node].pos
+    const ground = groundAt(p.x, p.z)
+    if (ground - p.y > EXIT_MAX_DEPTH) return
+    if (Math.hypot(p.x, p.z) < EXIT_MIN_FROM_NEST) return
+    if (!clearGround(p.x, p.z, EXIT_RADIUS)) return // the crater on dry, open ground
+    // Not on a food spot or the midden either.
+    if (FOOD_SPOTS.some((f) => Math.hypot(f.position.x - p.x, f.position.z - p.z) < FOOD_SPOT_RADIUS + EXIT_RADIUS)) return
+    if (Math.hypot(TASK_POSITIONS.Cleaning.x - p.x, TASK_POSITIONS.Cleaning.z - p.z) < MIDDEN_RADIUS + EXIT_RADIUS) return
+    if (EXITS.some((e) => Math.hypot(e.surface.x - p.x, e.surface.z - p.z) < EXIT_MIN_APART)) return
+    // Only a fairly direct tunnel is worth opening up: one that winds far more than the walk
+    // over the ground would never be taken.
+    const path = digPathTo(node)
+    let tunnel = ground - p.y
+    for (let i = 1; i < path.length; i++) tunnel += Vector3.Distance(path[i - 1], path[i])
+    if (tunnel > Math.hypot(p.x, p.z) * EXIT_MAX_WINDING) return
+    EXITS.push({ node, surface: new Vector3(p.x, ground, p.z) })
+    this.events.exitDug?.(EXITS[EXITS.length - 1].surface)
+  }
+
+  /**
+   * Room roles. For each role the overflow (what the main room can't hold) is compared with
+   * the capacity of the dug rooms already given that role: short of space → the free room
+   * nearest the main room takes the role; plenty to spare → an empty room is freed again.
+   * Brood and food overflow are then shared out over their rooms, in the order they were taken.
+   */
+  private allocateRooms(): void {
+    // Brood and food go in the founding chamber first; sleepers in the main sleep chamber.
+    const first: Record<RoomRole, number> = { sleep: ROOM_UNIT_HOLDS.sleep, brood: FOUNDING_HOLDS.brood, store: FOUNDING_HOLDS.store }
+    const demand: Record<RoomRole, number> = { sleep: this.asleep, brood: this.brood.length, store: Math.max(0, this.food) }
+    FOUNDING.brood = Math.min(demand.brood, first.brood)
+    FOUNDING.store = Math.min(demand.store, first.store)
+    const queen = TASK_POSITIONS.QueenCare
+    ;(Object.keys(demand) as RoomRole[]).forEach((role) => {
+      const overflow = Math.max(0, demand[role] - first[role])
+      const rooms = DIG_NETWORK.filter((n) => n.role === role)
+      const capacity = rooms.reduce((sum, n) => sum + roomCapacity(n, role), 0)
+      const used = (n: DigNode): number => (role === 'sleep' ? n.sleepers : n.fill)
+      if (overflow > capacity) {
+        // Short of space: the free room nearest the rooms already used this way (or the
+        // founding / sleep chamber) takes the role.
+        const near = rooms.length > 0 ? rooms.map((n) => n.pos) : [role === 'sleep' ? SLEEP_POSITION : queen]
+        let best: DigNode | null = null
+        let bestD = Infinity
+        DIG_NETWORK.forEach((n) => {
+          if (n.parent < 0 || n.role !== null || n.room <= 0) return
+          const d = Math.min(...near.map((p) => Vector3.Distance(n.pos, p)))
+          if (d < bestD) {
+            bestD = d
+            best = n
+          }
+        })
+        if (best) (best as DigNode).role = role
+      } else {
+        // Free the last-taken empty room if the others would still hold the overflow with room to spare.
+        const spare = [...rooms].reverse().find((n) => used(n) === 0 && overflow <= (capacity - roomCapacity(n, role)) * 0.7)
+        if (spare) spare.role = null
+      }
+      const housed = DIG_NETWORK.filter((n) => n.role === role).reduce((sum, n) => sum + roomCapacity(n, role), 0)
+      this.roomSpace[role] = first[role] + housed
+      this.unhoused[role] = Math.max(0, overflow - housed)
+      if (role === 'sleep') return
+      let left = overflow
+      let busiest: DigNode | null = null
+      DIG_NETWORK.forEach((n) => {
+        if (n.role !== role) return
+        n.fill = Math.min(left, roomCapacity(n, role))
+        left -= n.fill
+        if (!busiest || n.fill > busiest.fill) busiest = n
+      })
+      // Storers and brood carers head for the room that holds the most (walkers hold copies).
+      const site = role === 'store' ? TASK_POSITIONS.Store : TASK_POSITIONS.EggLarvePupeaCare
+      const b = busiest as DigNode | null
+      site.copyFrom(b && b.fill > FOUNDING[role] ? b.pos : queen)
+    })
+  }
+
+  /** How much of the food, brood and sleepers has no room: 0..1 each, summed (0..3). */
+  get crowding(): number {
+    const share = (role: RoomRole, total: number): number => (total > 0 ? this.unhoused[role] / total : 0)
+    return share('sleep', this.asleep) + share('brood', this.brood.length) + share('store', Math.max(0, this.food))
+  }
+
+  /** Keep the patrol band in step with the territory: from outside the nest to 60% of the fence. */
+  private updatePatrolBand(): void {
+    PATROL_BAND.inner = 1.5 * SEARCHING_RADIUS
+    PATROL_BAND.outer = Math.max(PATROL_BAND.inner + SEARCHING_RADIUS, 0.6 * SITE_RADIUS_MAX * this.foodReach)
+  }
+
   /** Everything already on the map that a new spot should keep its distance from. */
   private occupied(except?: FoodSpot): Vector3[] {
     return [
       ...(Object.keys(TASK_POSITIONS) as TaskName[]).filter((t) => t !== 'Collect').map((t) => TASK_POSITIONS[t]),
       ...FOOD_SPOTS.filter((spot) => spot !== except).map((spot) => spot.position),
+      ...EXITS.map((e) => e.surface),
     ]
   }
 
@@ -406,7 +669,9 @@ export class Colony {
    * food far away; once walking made distance cost time, that starved it year after year.)
    */
   private placeFood(except?: FoodSpot): Vector3 {
-    return placeOnSurface(this.occupied(except), 0.6 * SEARCHING_RADIUS, SITE_RADIUS_MAX * this.foodReach)
+    // Never on the anthill: clear of the mound as it is now, with room for the spot itself.
+    const minR = Math.max(0.6 * SEARCHING_RADIUS, (this.nestDiameter / 2) * NEST_CLEARING + FOOD_SPOT_RADIUS)
+    return placeOnSurface(this.occupied(except), minR, SITE_RADIUS_MAX * this.foodReach, FOOD_SPOT_RADIUS)
   }
 
   /** Keep the number of spots in line with the size of the foraging area. */
@@ -476,6 +741,7 @@ export class Colony {
         lay: mix(now.lay, next.lay),
         rest: mix(now.rest, next.rest),
         spoil: mix(now.spoil, next.spoil),
+        aging: mix(now.aging, next.aging),
         frost: mix(now.frost, next.frost),
         tint: [mix(now.tint[0], next.tint[0]), mix(now.tint[1], next.tint[1]), mix(now.tint[2], next.tint[2])],
         // The soil changes slowly: it blends across the WHOLE season (eased), not just its end.
@@ -555,10 +821,16 @@ export class Colony {
 
   private economyTick(): void {
     const dtMin = ECONOMY_TICK_MS / 60e3
+    // Ants age at the season's pace (slower in the cold).
+    this.ants.forEach((ant) => (ant.age += ECONOMY_TICK_MS * this.season.aging))
     // Trails fade: routes nobody walks disappear, walked ones are kept up by the walking.
     if (TRAILS_ON) TRAILS.decay(ECONOMY_TICK_MS, TRAIL_HALF_LIFE_MS)
+    if (NO_ENTRY_ON) TRAILS.decayNoEntry(ECONOMY_TICK_MS, NO_ENTRY_HALF_LIFE_MS)
     this.updateSeason()
     this.ensureFoodSpots()
+    this.updatePatrolBand()
+    this.allocateRooms()
+    this.midden *= Math.pow(0.5, ECONOMY_TICK_MS / MIDDEN_HALF_LIFE_MS)
     this.collectors = this.ants.filter((a) => a.data.behaviour.actualTask.type === 'Collect').length
     this.resyncDedicatedAnts()
 
@@ -583,7 +855,11 @@ export class Colony {
     this.intakeThisTick = 0
 
     // Out: spoilage (Store work keeps it down) and everyone eating.
-    const spoiled = this.food * SPOILAGE_PER_MIN * this.season.spoil * (1 - this.supply('Store')) * dtMin
+    // Food with no store room to go in lies in the tunnels and spoils fast, Store work or not.
+    const unstored = Math.min(this.unhoused.store, Math.max(0, this.food))
+    const spoiled =
+      (this.food - unstored) * SPOILAGE_PER_MIN * this.season.spoil * (1 - this.supply('Store')) * dtMin +
+      unstored * UNSTORED_SPOIL_PER_MIN * this.season.spoil * dtMin
     const eaten = this.consumption() * dtMin
     this.spoilagePerMin = smooth(this.spoilagePerMin, spoiled / dtMin)
     this.consumptionPerMin = smooth(this.consumptionPerMin, eaten / dtMin)
@@ -633,6 +909,8 @@ export class Colony {
     this.needs.Store.need += this.food * STORE_NEED_PER_FOOD_PER_MIN * dtMin
     const nestFactor = this.nestDiameter / NEST_BASE_DIAMETER
     this.needs.Cleaning.need += this.ants.length * nestFactor * CLEANING_NEED_PER_ANT_PER_MIN * dtMin
+    // Digging follows crowding: food, brood and sleepers with no room make the need to dig.
+    this.needs.Expansion.need += this.crowding * EXPANSION_CROWDING_NEED_PER_MIN * dtMin
     this.updateUrgencies()
 
     // Exterior work is dangerous: predators, heat, getting lost. Only awake ants out on
@@ -657,7 +935,19 @@ export class Colony {
     this.deaths0 = this.deaths
   }
 
-  /** Digging effect left on frozen ground (EXPERIMENT_FROZEN_GROUND). */
+  /**
+   * How deep the nest has been dug, for the VIEW only (galleries drawn under the nest as it
+   * expands). The digging front ants walk to does not move: that would change their behaviour.
+   */
+  get digDepth(): number {
+    return SEARCHING_RADIUS * (DIG_DEPTH_START + DIG_DEPTH_RANGE * this.expansionLevel)
+  }
+
+  /**
+   * Digging effect left on frozen ground (EXPERIMENT_FROZEN_GROUND). The same at every depth:
+   * letting deep digging escape the frost made the territory expand faster, spread food out
+   * sooner and cost the colony (headless A/B), so the winter slowdown stays whole.
+   */
   get digFactor(): number {
     return EXPERIMENT_FROZEN_GROUND ? 1 - FROST_DIG_LOSS * this.season.frost : 1
   }
@@ -676,7 +966,9 @@ export class Colony {
     const n = this.brood.length
     this.needs.EggLarvePupeaCare.need += n * BROOD_CARE_NEED_PER_MIN * dtMin
     if (n === 0) return
-    const care = this.broodCare
+    // Brood with no nursery room is crowded in and cared for worse.
+    const housed = 1 - Math.min(1, this.unhoused.brood / n)
+    const care = this.broodCare * (housed + (1 - housed) * UNHOUSED_BROOD_CARE)
     // Well tended: full speed. Neglected: down to a quarter speed.
     const step = ((dtMin * 60e3) / BROOD_DEV_MS) * (0.25 + 0.75 * care)
     // Neglect kills: (1 − care)² so a slightly short-handed nursery loses little.

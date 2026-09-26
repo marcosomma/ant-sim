@@ -2,11 +2,13 @@
 //   pnpm sim:headless [minutes=60] [speed=16]
 // Prints one line per simulated minute so the population dynamics can be read (or piped
 // to a file and plotted) without waiting in front of a browser tab.
+import './seed'
 import { ArcRotateCamera, NullEngine, PrecisionDate, Scene, Vector3 } from '@babylonjs/core'
 
 import { advance, onSpeedChange, setSpeed, simNow } from '../src/commons/simClock'
-import { CHECK_TIME_INTERVAL, explorationExtent } from '../src/constants'
+import { CHECK_TIME_INTERVAL, FOOD_SPOT_RADIUS, MIDDEN_RADIUS, TASK_POSITIONS, clearGround, MAIN_SLEEP, TERRAIN, explorationExtent, isUnderground } from '../src/constants'
 import { Colony } from '../src/model/colony'
+import Ant from '../src/classes/ant'
 
 const minutes = Number(process.argv[2] ?? 60)
 const speed = Number(process.argv[3] ?? 16)
@@ -36,7 +38,7 @@ if (availability !== undefined) colony.foodAvailability = availability
 colony.start()
 
 out(`CHECK_TIME_INTERVAL=${(CHECK_TIME_INTERVAL / 1e3).toFixed(1)}s  speed=${speed}×  minutes=${minutes}  food=×${colony.foodAvailability}`)
-out('min  season   alive  asleep  collect  knowC  spots known  empt  range  exp  in/m  eat/m  food   reserve  lay/m  limit  born  died  starved  gen')
+out('min  season   alive  asleep  collect  knowC  spots known  empt  range  exp  in/m  eat/m  food   reserve  lay/m  limit  born  died  starved  gen  exits  viaExit  wet  rooms s/b/f  mainSleep  noRoom f/b  crowd')
 let nextReport = 60e3
 const started = Date.now()
 while (simNow() < minutes * 60e3 && colony.ants.length > 0) {
@@ -71,9 +73,26 @@ while (simNow() < minutes * 60e3 && colony.ants.length > 0) {
         String(colony.deaths).padStart(5),
         String(colony.starved).padStart(8),
         String(gen).padStart(4),
+        String(colony.exits.length).padStart(6),
+        // ants on a leg that ends at an exit, and surface ants standing somewhere impassable
+        String(ants.filter((a) => { const to = (a as unknown as { leg?: { to: { x: number; z: number } } }).leg?.to; return !!to && colony.exits.some((e) => Math.hypot(e.surface.x - to.x, e.surface.z - to.z) < 1) }).length).padStart(8),
+        String(ants.filter((a) => { const p = a.data.body.position; return !isUnderground(p) && !TERRAIN.passable(p.x, p.z) }).length).padStart(4),
+        `${['sleep', 'brood', 'store'].map((r) => colony.digNetwork.filter((n) => n.role === r).length).join('/')}`.padStart(12),
+        String(MAIN_SLEEP.sleepers).padStart(10),
+        `${colony.unhoused.store.toFixed(0)}/${colony.unhoused.brood.toFixed(0)}`.padStart(11),
+        colony.crowding.toFixed(2).padStart(6),
       ].join(' '),
     )
   }
+}
+{
+  const net = colony.digNetwork.slice(1)
+  const R = 20
+  const depth = net.map((n) => -n.pos.y / R)
+  const reach = net.map((n) => Math.hypot(n.pos.x, n.pos.z) / R)
+  const bad = colony.foodSpots.filter((f) => !clearGround(f.position.x, f.position.z, FOOD_SPOT_RADIUS)).length + (clearGround(TASK_POSITIONS.Cleaning.x, TASK_POSITIONS.Cleaning.z, MIDDEN_RADIUS) ? 0 : 1)
+  out(`overlapping spots: ${bad}/${colony.foodSpots.length + 1}`)
+  out(`stuck rescues: ${Ant.stuckRescues}  exits: ${colony.exits.length}  network: ${net.length} nodes, depth max ${Math.max(...depth).toFixed(1)}R mean ${(depth.reduce((a, b) => a + b, 0) / depth.length).toFixed(1)}R, reach max ${Math.max(...reach).toFixed(1)}R mean ${(reach.reduce((a, b) => a + b, 0) / reach.length).toFixed(1)}R`)
 }
 out(colony.ants.length === 0 ? 'EXTINCT' : `done in ${((Date.now() - started) / 1e3).toFixed(0)}s real time`)
 process.exit(0)
