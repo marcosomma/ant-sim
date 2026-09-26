@@ -1,5 +1,4 @@
 import {
-  AbstractMesh,
   ArcRotateCamera,
   Color3,
   DynamicTexture,
@@ -51,6 +50,7 @@ import {
   TaskName,
 } from '../constants'
 import type { Colony } from '../model/colony'
+import { AntBodies } from './antBodies'
 import { NestView, SLEEP_TINT, bowlMaterial, cordTube, glassOf, roomShell } from './nestView'
 import { NEST_ENTRANCE, NEST_PROFILE, SLEEP_ROOM_RADIUS, SLEEP_SQUASH, groundTilt, leafMesh, leafTint, moundHeightAt } from './nestShape'
 
@@ -214,10 +214,9 @@ export class ColonyView {
   private middenPieces = {} as Record<'spoil' | 'scrap' | 'corpse', Mesh>
   private middenCount = -1
   private middenBase: Mesh | null = null
-  private carryMeshes = new WeakMap<Ant, Mesh>()
-  private seedMat!: StandardMaterial
+  private bodies!: AntBodies
+  private lookTint = new Color3(1, 1, 1)
   private leafMat!: StandardMaterial
-  private pebbleMat!: StandardMaterial
   private nestView!: NestView
   private digBranch: Mesh | null = null
   private sleepChamber: Mesh | null = null
@@ -269,6 +268,8 @@ export class ColonyView {
     }
     this.sites.Collect.road.setEnabled(false)
     this.createEffectPools()
+    // Ant bodies (head, thorax, gaster, legs, antennae), animated every frame.
+    this.bodies = new AntBodies(scene)
     // Nothing in the 3D view can be picked or selected (clicks don't fly the camera anywhere):
     // the HUD is where you select; the scene only shows.
     scene.skipPointerMovePicking = true
@@ -689,16 +690,11 @@ export class ColonyView {
   private glowMeshes(task: Focus): Mesh[] {
     const meshes = (node: TransformNode | Mesh | null | undefined): Mesh[] =>
       !node ? [] : [...(node instanceof Mesh ? [node] : []), ...node.getChildMeshes().filter((m): m is Mesh => m instanceof Mesh)]
-    const carried = (t: TaskName): Mesh[] =>
-      this.colony.ants.flatMap((a) => {
-        const m = a.data.behaviour.actualTask.type === t ? this.carryMeshes.get(a) : undefined
-        return m && m.isEnabled() ? [m] : []
-      })
     switch (task) {
       case 'Collect':
-        return [...this.foodViews.flatMap((v) => meshes(v.root)), ...carried('Collect')]
+        return this.foodViews.flatMap((v) => meshes(v.root))
       case 'Cleaning':
-        return [...meshes(this.middenHeap), ...(this.middenBase ? [this.middenBase] : []), ...Object.values(this.debrisMeshes), ...carried('Cleaning')]
+        return [...meshes(this.middenHeap), ...(this.middenBase ? [this.middenBase] : []), ...Object.values(this.debrisMeshes)]
       case 'Protection':
         // The kerbs only: the fill is a terrain-sized mesh (mostly transparent) and would glow as a square.
         return this.bandEdges
@@ -757,6 +753,7 @@ export class ColonyView {
 
   private animate(): void {
     this.updateView()
+    this.bodies.update(this.colony.ants)
     // Effects follow the sim speed (frozen when paused), like everything else.
     const dt = (this.scene.getEngine().getDeltaTime() / 1000) * getSpeed()
     const step = (fx: Effect): void => {
@@ -919,7 +916,6 @@ export class ColonyView {
         if (behaviour.discoveredPositions[t]) knownBy[t]++
       })
       this.paintAnt(ant, task)
-      this.paintCarry(ant)
     })
 
     // The chamber glows a little brighter the more of the colony is asleep in it.
@@ -1076,10 +1072,8 @@ export class ColonyView {
       piece.position.setAll(0)
       this.middenPieces[kind] = piece
     })
-    this.seedMat = material(this.scene, 'carry:seed', new Color3(0.62, 0.78, 0.3), 1, 0.4)
     this.leafMat = material(this.scene, 'food:leaf', new Color3(1, 1, 1), 1, 0.15)
     this.leafMat.backFaceCulling = false
-    this.pebbleMat = material(this.scene, 'carry:pebble', new Color3(0.4, 0.32, 0.24), 1, 0.2)
   }
 
   /** The patrol band: a ring on the ground from PATROL_BAND.inner to .outer, draped on the terrain. */
@@ -1182,27 +1176,6 @@ export class ColonyView {
   }
 
   /** A seed on a forager bringing food home, a pebble on a cleaner carrying debris. */
-  private paintCarry(ant: Ant): void {
-    const carrying = ant.carried > 0 ? this.seedMat : ant.carryingDebris ? this.pebbleMat : null
-    let mesh = this.carryMeshes.get(ant)
-    if (!carrying) {
-      mesh?.setEnabled(false)
-      return
-    }
-    if (!mesh) {
-      mesh = MeshBuilder.CreateSphere('carry', { diameter: 0.9 * S, segments: 6 }, this.scene)
-      mesh.parent = ant.data.body as Mesh
-      mesh.position.y = 0.55 * S
-      mesh.isPickable = false
-      this.carryMeshes.set(ant, mesh)
-    }
-    mesh.material = carrying
-    // A piece of leaf (flat, green) coming home with food; a pebble of debris otherwise.
-    if (carrying === this.seedMat) mesh.scaling.set(1.7, 0.3, 1)
-    else mesh.scaling.setAll(1)
-    mesh.setEnabled(true)
-  }
-
   // --- food spots ------------------------------------------------------------
 
   private createFoodSpotView(spot: FoodSpot): FoodSpotView {
@@ -1286,26 +1259,22 @@ export class ColonyView {
   }
 
   private paintAnt(ant: Ant, task: TaskName): void {
-    const mesh = ant.data.body as AbstractMesh | null
-    const mat = mesh?.material as StandardMaterial | null
-    if (!mesh || !mat) return
     // Colour = task. Like real callow workers, a new ant starts PALE and darkens to its full
     // colour as it matures. Brightness = how much of the map it truly knows (sites, and a food
     // spot that still has food): a dim ant knows little, a bright one knows a lot.
     const age = (simNow() - ant.data.bornAt) / CALLOW_MS
     const pale = Math.max(0, 1 - age) * 0.7
-    Color3.LerpToRef(TASK_COLOR3[task], CALLOW, pale, mat.diffuseColor)
-    if (ant.isSleeping) {
-      // Asleep: unlit and half transparent.
-      mat.emissiveColor.copyFrom(BLACK)
-    } else {
-      mat.emissiveColor.copyFrom(mat.diffuseColor).scaleInPlace(0.12 + 0.6 * ant.knowledgeShare())
-    }
-    const visible = this.highlighted === null || this.highlighted === task || (this.highlighted === 'Sleep' && ant.isSleeping)
-    // Each view shows its own ants: underground ones only underground, surface ones faint there.
-    const below = isUnderground(mesh.position)
-    const layer = this.shown === 'underground' ? (below ? 1 : 0.2) : below ? 0 : 1
-    mesh.visibility = (visible ? 1 : 0.08) * (ant.isSleeping ? 0.7 : 1) * layer
+    Color3.LerpToRef(TASK_COLOR3[task], CALLOW, pale, this.lookTint)
+    const singled = this.highlighted === null || this.highlighted === task || (this.highlighted === 'Sleep' && ant.isSleeping)
+    // Each view shows its own ants: underground ones only underground, surface ones dimmed there.
+    const below = isUnderground(ant.data.body.position)
+    const onLayer = this.shown === 'underground' ? true : !below
+    const dimmedByLayer = this.shown === 'underground' && !below
+    this.bodies.setLook(ant, {
+      tint: this.lookTint,
+      bright: ant.knowledgeShare(),
+      mode: !onLayer ? 'hidden' : singled && !dimmedByLayer ? 'full' : 'dim',
+    })
   }
 
   private focus(target: Vector3, radius: number): void {
