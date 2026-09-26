@@ -868,7 +868,11 @@ export const SWITCH_THRESHOLD_SPREAD = 0.35
 // Real workers cluster around a typical age (harvester workers ≈ a year, fire ants 1–6
 // months) and most die outside the nest. Now: a clustered intrinsic lifespan, plus extra
 // risk while doing exterior work, which is what shortens foragers' lives.
-export const LIFESPAN_MEAN_MS = 22.5 * CHECK_TIME_INTERVAL
+// A designed constant, not 22.5 × CHECK_TIME_INTERVAL: that interval is drawn at random once
+// per run (30–90 s), so every run had a different biology. Lifespan is also the colony's
+// fault-containment time (how long a failing ant can keep failing), which must not be a dice
+// roll. 22.5 min = the mean of the old range.
+export const LIFESPAN_MEAN_MS = 22.5 * 60e3
 export const LIFESPAN_SPREAD = 0.4 // lifespan ∈ mean × [1 − spread, 1 + spread]
 export const getLifespan = (): number => LIFESPAN_MEAN_MS * (1 - LIFESPAN_SPREAD + 2 * LIFESPAN_SPREAD * Math.random())
 /** Gordon's exterior tasks: foraging, patrolling, midden work, nest maintenance. */

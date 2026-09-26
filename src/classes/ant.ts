@@ -692,9 +692,16 @@ export default class Ant {
     }
     this.homeSuccess = false
     const previousTask = this.data.behaviour.actualTask.type
-    const calculatedIncreaseValue = this.data.behaviour.discoveredPositions[previousTask]
-      ? INCREASE_MAIN_TASK * this.data.behaviour.geneticalPriority[previousTask]
-      : 0
+    // Work delivered = a SUCCESSFUL return. A collector that comes home with nothing (the spot
+    // was empty, it turned back, it never found food) delivers no work: failures stay local
+    // instead of writing into the colony's signal. (Gordon's harvester ants: what stimulates
+    // foraging is the rate of successful returns; an empty-handed ant adds nothing.) Before
+    // this, an empty trip counted the same as a full one and the need dropped while nothing arrived.
+    const succeeded = previousTask !== 'Collect' || this.carried > 0
+    const calculatedIncreaseValue =
+      succeeded && this.data.behaviour.discoveredPositions[previousTask]
+        ? INCREASE_MAIN_TASK * this.data.behaviour.geneticalPriority[previousTask]
+        : 0
     if (SWITCH_MODEL === 'threshold' && this.data.nestNeeds) {
       this.assignByThreshold(previousTask)
     } else {
