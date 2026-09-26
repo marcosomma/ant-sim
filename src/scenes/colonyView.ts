@@ -233,6 +233,7 @@ export class ColonyView {
    * highlighted.
    */
   private viewChoice: NestLayer = 'surface'
+  private followBelow = false
   private shown: NestLayer | null = null
   private viewListeners: ((view: NestLayer) => void)[] = []
   /** How visible surface things are in the current view (1 on the surface, faint underground). */
@@ -278,10 +279,7 @@ export class ColonyView {
     this.glow = new HighlightLayer('task-glow', scene, { blurHorizontalSize: 0.8, blurVerticalSize: 0.8 })
     this.glow.innerGlow = false
 
-    camera.setTarget(Vector3.Zero())
-    camera.radius = BASE_RADIUS
-    camera.alpha = -Math.PI / 3
-    camera.beta = 1.1
+    this.resetCamera()
     window.addEventListener('keydown', (e) => {
       if (e.key === 'h' || e.key === 'H') this.focus(Vector3.Zero(), BASE_RADIUS)
     })
@@ -661,12 +659,34 @@ export class ColonyView {
   }
 
   /** Underground if chosen, if the camera is below the ground, or an underground task is highlighted. */
+  /** The starting view: the nest from the default angle and distance. */
+  resetCamera(): void {
+    this.camera.setTarget(Vector3.Zero())
+    this.camera.radius = BASE_RADIUS
+    this.camera.alpha = -Math.PI / 3
+    this.camera.beta = 1.1
+  }
+
+  /** The view actually shown right now (the user's choice, or the automatic switch). */
+  get shownView(): NestLayer {
+    return this.shown ?? 'surface'
+  }
+
+  /** Something being followed (an ant) is underground: show the underground with it. */
+  hintUnderground(on: boolean): void {
+    if (this.followBelow === on) return
+    this.followBelow = on
+    this.updateView()
+  }
+
   private updateView(): void {
     const eye = this.camera.globalPosition
     const below = eye.y < groundAt(eye.x, eye.z) - 0.2
     const task = this.highlighted
     const want: NestLayer =
-      this.viewChoice === 'underground' || below || (task !== null && UNDERGROUND_TASKS.includes(task)) ? 'underground' : 'surface'
+      this.viewChoice === 'underground' || below || this.followBelow || (task !== null && UNDERGROUND_TASKS.includes(task))
+        ? 'underground'
+        : 'surface'
     if (want === this.shown) return
     this.shown = want
     this.applyView(want === 'underground')

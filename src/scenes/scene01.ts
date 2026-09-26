@@ -9,6 +9,7 @@ import { createControls } from '../ui/controls'
 import { createHud } from '../ui/hud'
 import { createSound } from '../ui/sound'
 import { ColonyView } from './colonyView'
+import { Navigation } from './navigation'
 
 const canvas = document.getElementById('renderCanvas') as HTMLCanvasElement
 
@@ -36,6 +37,8 @@ export const Create = (engine: Engine): Scene => {
   createHud({ colony, onHighlight: (task) => view.highlight(task) })
   createAbout()
   createControls(colony, createSound(colony), view)
+  // W A S D pan, click an ant to follow it.
+  new Navigation(scene, camera, canvas, colony, view)
 
   return scene
 }
