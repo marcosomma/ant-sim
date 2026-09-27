@@ -1009,17 +1009,39 @@ export const getAntObject = (type: AntType): AntData => ({
 // ---------------------------------------------------------------------------
 // Brood: eggs develop before they become workers
 // ---------------------------------------------------------------------------
-// Laid eggs are not ants yet. They are brood (egg → larva → pupa) for BROOD_DEV_MS, and they
+// Laid eggs are not ants yet. They are brood (egg → larva → pupa) on a fixed clock, and they
 // need care and food on the way, like real brood:
+//   * each egg gets its own timetable: egg 1–2 weeks, larva 1–3, pupa 1–3, so 3–8 weeks egg
+//     to adult (a sim week is YEAR_MS / 52). Development does NOT slow with neglect (it used
+//     to, up to 4×, which left eggs sitting for whole seasons): neglect kills instead;
 //   * brood-care NEED comes from the brood itself (per brood per minute), so it booms in
 //     spring and all but vanishes in winter, following the eggs actually laid;
-//   * care speeds development (well-tended brood takes BROOD_DEV_MS, neglected up to 4×
-//     longer) and neglect kills some of it;
 //   * larvae eat;
 //   * in famine the colony eats its own brood and gets part of the food back, as real
 //     colonies do: brood is the colony's buffer against starvation.
-/** Egg to adult: ~30% of a worker's mean life (fire ants: ~1 month of ~3). */
-export const BROOD_DEV_MS = 0.3 * LIFESPAN_MEAN_MS
+export const WEEK_MS = YEAR_MS / 52
+/** Stage lengths in weeks, [min, max], drawn per egg. */
+export const BROOD_STAGE_WEEKS: Record<BroodStage, [number, number]> = { egg: [1, 2], larva: [1, 3], pupa: [1, 3] }
+export type BroodStage = 'egg' | 'larva' | 'pupa'
+export interface Brood {
+  /** 0..1 of the way to emerging. */
+  progress: number
+  /** This egg's whole development time. */
+  devMs: number
+  /** Progress at which it becomes a larva, and a pupa. */
+  larvaAt: number
+  pupaAt: number
+}
+const weeks = ([lo, hi]: [number, number]): number => (lo + Math.random() * (hi - lo)) * WEEK_MS
+/** A fresh egg with its own timetable. */
+export const layEgg = (): Brood => {
+  const egg = weeks(BROOD_STAGE_WEEKS.egg)
+  const larva = weeks(BROOD_STAGE_WEEKS.larva)
+  const pupa = weeks(BROOD_STAGE_WEEKS.pupa)
+  const devMs = egg + larva + pupa
+  return { progress: 0, devMs, larvaAt: egg / devMs, pupaAt: (egg + larva) / devMs }
+}
+export const broodStage = (b: Brood): BroodStage => (b.progress < b.larvaAt ? 'egg' : b.progress < b.pupaAt ? 'larva' : 'pupa')
 export const BROOD_CARE_NEED_PER_MIN = 0.35
 export const BROOD_FOOD_PER_MIN = 0.4
 /** Share of neglected brood dying per minute at zero care (scales with (1 − care)²). */

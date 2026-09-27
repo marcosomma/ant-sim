@@ -225,12 +225,14 @@ const SECTIONS: Section[] = [
     id: 'brood',
     title: 'Brood: from egg to worker',
     body: `<ul>
-      <li>The queen lays <b>eggs</b>, not ants. Brood (egg → larva → pupa) develops for about a third of a
-        worker's life before a new worker emerges. That emergence is what "born" counts.</li>
+      <li>The queen lays <b>eggs</b>, not ants. Each egg runs on its own clock: egg 1–2 weeks, larva 1–3, pupa
+        1–3, so a worker emerges 3–8 weeks after laying (a sim week is 0.77 minutes). That emergence is what
+        "born" counts. The Brood tile shows the stages; underground, eggs are small and white, larvae cream,
+        pupae tan.</li>
       <li>The need for <b>brood care</b> comes from the brood itself, so it follows the eggs laid: it booms
         in spring and almost vanishes in winter.</li>
-      <li>Well-cared-for brood develops at full speed; neglected brood develops slowly and some of it
-        dies. Larvae also eat.</li>
+      <li>Care does not change the clock: neglected brood dies (the more neglected, the more of it), it does
+        not develop slowly. Larvae also eat.</li>
       <li>In famine the colony <b>eats its brood</b> before adults starve, getting part of the food back.
         Real colonies do the same: brood is the colony's buffer.</li>
       <li><i>Experimental:</i> <b>frozen ground</b>. In winter (and a little in late autumn) digging achieves

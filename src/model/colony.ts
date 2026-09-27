@@ -46,7 +46,10 @@ import {
   BROOD_CANNIBALISM_PER_MIN,
   BROOD_CANNIBALISM_RETURN,
   BROOD_CARE_NEED_PER_MIN,
-  BROOD_DEV_MS,
+  Brood,
+  BroodStage,
+  broodStage,
+  layEgg,
   BROOD_FOOD_PER_MIN,
   BROOD_NEGLECT_DEATHS_PER_MIN,
   EXPERIMENT_FROZEN_GROUND,
@@ -236,7 +239,7 @@ export class Colony {
   private intakeThisTick = 0
   private eggProgress = 0
   /** Brood in development: each item is 0..1 of the way to emerging as a worker. */
-  readonly brood: { progress: number }[] = []
+  readonly brood: Brood[] = []
   broodEmerged = 0
   broodDied = 0
   broodEaten = 0
@@ -261,6 +264,13 @@ export class Colony {
    */
   get expansionLevel(): number {
     return this.expansionWork / (this.expansionWork + EXPANSION_HALF_LEVEL)
+  }
+
+  /** Brood by stage, for the panel and the view. */
+  get broodStages(): Record<BroodStage, number> {
+    const n = { egg: 0, larva: 0, pupa: 0 }
+    this.brood.forEach((b) => n[broodStage(b)]++)
+    return n
   }
 
   /** Current dome diameter, which the view reads every frame. */
@@ -692,7 +702,7 @@ export class Colony {
     } else if (kind === 'food') {
       ;[...FOOD_SPOTS].forEach((spot) => this.respawnFoodSpot(spot, true))
     } else {
-      const extra = this.brood.map((b) => ({ progress: b.progress }))
+      const extra = this.brood.map((b) => ({ ...b }))
       this.brood.push(...extra)
     }
   }
@@ -1024,8 +1034,8 @@ export class Colony {
     // Brood with no nursery room is crowded in and cared for worse.
     const housed = 1 - Math.min(1, this.unhoused.brood / n)
     const care = this.broodCare * (housed + (1 - housed) * UNHOUSED_BROOD_CARE)
-    // Well tended: full speed. Neglected: down to a quarter speed.
-    const step = ((dtMin * 60e3) / BROOD_DEV_MS) * (0.25 + 0.75 * care)
+    // Development runs on each egg's own clock, whatever the care; neglect kills (below).
+    const dtMs = dtMin * 60e3
     // Neglect kills: (1 − care)² so a slightly short-handed nursery loses little.
     this.broodDeathProgress += n * BROOD_NEGLECT_DEATHS_PER_MIN * (1 - care) * (1 - care) * dtMin
     while (this.broodDeathProgress >= 1 && this.brood.length > 0) {
@@ -1035,7 +1045,7 @@ export class Colony {
     }
     for (let i = this.brood.length - 1; i >= 0; i--) {
       const b = this.brood[i]
-      b.progress += step
+      b.progress += dtMs / b.devMs
       if (b.progress >= 1) {
         this.brood.splice(i, 1)
         this.broodEmerged++
@@ -1063,7 +1073,7 @@ export class Colony {
     while (this.eggProgress >= 1 && this.food >= EGG_FOOD_COST && this.ants.length + this.brood.length < POPULATION_CAP) {
       this.eggProgress -= 1
       this.food -= EGG_FOOD_COST
-      this.brood.push({ progress: 0 }) // an egg, not an ant yet
+      this.brood.push(layEgg()) // an egg, not an ant yet, on its own 3–8 week clock
     }
     if (this.food < EGG_FOOD_COST) this.eggProgress = Math.min(this.eggProgress, 1)
   }

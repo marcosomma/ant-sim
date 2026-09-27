@@ -422,7 +422,8 @@ export const createHud = (src: HudSource): void => {
     const broodCount = colony.brood.length
     broodTile.fill.style.width = pct(broodCount ? colony.broodCare : 0)
     broodTile.value.textContent = `${broodCount}`
-    broodTile.detail.textContent = broodCount ? `care ${pct(colony.broodCare)}` : 'no brood'
+    const st = colony.broodStages
+    broodTile.detail.textContent = broodCount ? `${st.egg} eggs · ${st.larva} larvae · ${st.pupa} pupae · care ${pct(colony.broodCare)}` : 'no brood'
     broodTile.el.title =
       `${broodCount} brood developing (bar = care they get) · ${colony.broodEmerged} emerged as workers, ` +
       `${colony.broodDied} died of neglect, ${colony.broodEaten} eaten in famine`

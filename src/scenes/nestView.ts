@@ -162,7 +162,7 @@ export class NestView {
     leafMat.backFaceCulling = false
     this.seeds.material = leafMat
     this.brood = MeshBuilder.CreateSphere('room:brood', { diameterX: 0.9, diameterY: 1.4, diameterZ: 0.9, segments: 6 }, scene)
-    this.brood.material = plain(scene, 'brood', new Color3(0.95, 0.93, 0.85), 0.45)
+    this.brood.material = plain(scene, 'brood', new Color3(1, 1, 1), 0.35)
     this.brood.isPickable = false
 
     // The queen: a large ant (head, thorax, big abdomen), resting in her chamber.
@@ -216,10 +216,24 @@ export class NestView {
       if (this.seedCount > 0) this.seeds.thinInstanceSetBuffer('color', leafTint(this.seedCount, 7), 4)
     }
     const broodGroups = groups('brood', FOUNDING.brood, (f) => Math.round(f), MAX_BROOD)
-    const broodKey = broodGroups.map((g) => g.count).join(',')
+    const stages = colony.broodStages
+    const broodKey = `${broodGroups.map((g) => g.count).join(',')}|${stages.egg},${stages.larva},${stages.pupa}`
     if (broodKey !== this.broodKey) {
       this.broodKey = broodKey
       this.broodCount = this.fill(this.brood, broodGroups, 0.9 * S)
+      // Stage by colour and size: eggs small and white, larvae cream and plump, pupae tan.
+      if (this.broodCount > 0) {
+        const total = Math.max(1, colony.brood.length)
+        const eggShare = stages.egg / total
+        const larvaShare = stages.larva / total
+        const colors = new Float32Array(this.broodCount * 4)
+        for (let i = 0; i < this.broodCount; i++) {
+          const t = (i + 0.5) / this.broodCount
+          const c = t < eggShare ? [0.97, 0.97, 0.95] : t < eggShare + larvaShare ? [0.95, 0.9, 0.72] : [0.8, 0.66, 0.46]
+          colors.set([c[0], c[1], c[2], 1], i * 4)
+        }
+        this.brood.thinInstanceSetBuffer('color', colors, 4)
+      }
     }
 
     // The queen breathes, slowly.
