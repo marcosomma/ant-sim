@@ -1,12 +1,14 @@
 import type Ant from '../classes/ant'
 import {
   AUTODISCOVERING,
+  FORAGE_RANGE_AT_FULL_EXPANSION,
   EGG_FOOD_COST,
   POPULATION_CAP,
   QUEEN_EGGS_PER_MIN_MAX,
   TaskName,
 } from '../constants'
 import type { Colony, LayLimit } from '../model/colony'
+import { SHOCK_LABEL } from '../model/metrics'
 import { Focus, SLEEP_HEX, SLEEP_LABEL, TASK_HEX, TASK_LABEL, TASK_ORDER } from './palette'
 import '../assets/css/hud.css'
 
@@ -224,14 +226,24 @@ export const createHud = (src: HudSource): void => {
   const legend = h(
     'p',
     'hud-note',
-    'Workforce: solid = awake, faded = asleep. Right bar: need ÷ actual, log scale (full arm = 8×), centre = balanced. Underline: share of ants that know the site. Sleep: how many are asleep; its right bar is sleepers ÷ sleeping space (under = crowded). Hover a row to preview it in 3D; click to pin it and see whom its ants meet.',
+    'Workforce: solid = awake, faded = asleep. Right bar: need ÷ actual, log scale (full arm = 8×), centre = balanced. Underline: share of ants that know the site. Sleep: asleep now; its bar is sleepers ÷ space. Hover a row to preview it in 3D, click to pin it.',
   )
   tasks.append(legend)
+
+  // --- Allocation: how well the self-allocation serves the needs ------------------
+  const allocation = h('details', 'hud-section hud-fold')
+  const churn = tile('Churn')
+  const reversals = tile('Reversals')
+  const sampleTile = tile('Sample')
+  const allocationTiles = h('div', 'hud-tiles')
+  allocationTiles.append(churn.el, reversals.el, sampleTile.el)
+  const shockNote = h('p', 'hud-note')
+  allocation.append(h('summary', '', 'Allocation'), allocationTiles, shockNote)
 
   const tip = h('div', 'hud-tip')
   tip.setAttribute('role', 'tooltip')
 
-  body.append(colony, economy, tasks)
+  body.append(colony, economy, tasks, allocation)
   root.append(header, body)
   document.body.append(root, tip)
 
@@ -293,6 +305,15 @@ export const createHud = (src: HudSource): void => {
       ['urgency', fmt(n.urgency, 3)],
     ]
     if (AUTODISCOVERING) lines.push(['Location known by', pct((s?.known ?? 0) / total)])
+    // Allocation metrics for this task (see model/metrics.ts).
+    const m = src.colony.metrics.tasks[tipTask]
+    lines.push(
+      ['Supply now (actual ÷ need)', fmt(m.supply)],
+      ['Under-served (time < 0.5)', pct(m.underShare)],
+      ['Tracking error (|log2|)', fmt(m.trackingError)],
+      ['Crowding bias (seen ÷ true)', `${fmt(m.bias)} · avg ${fmt(m.biasMean)}`],
+      ['Switches in / out', `${m.switchesIn} / ${m.switchesOut}`],
+    )
     tip.replaceChildren(
       h('strong', '', TASK_LABEL[tipTask]),
       ...lines.map(([k, v]) => {
@@ -415,11 +436,12 @@ export const createHud = (src: HudSource): void => {
     spots.el.title = `${spotsKnown} of ${spotCount} food spots known by at least one ant · ${colony.foodSitesDepleted} emptied so far`
 
     // Territory: expansion widens the dome and the foraging area (the dashed circle).
-    territory.fill.style.width = pct(colony.expansionLevel)
+    const reachShare = (colony.foodReach - 1) / (FORAGE_RANGE_AT_FULL_EXPANSION - 1)
+    territory.fill.style.width = pct(reachShare)
     territory.value.textContent = `×${colony.foodReach.toFixed(1)}`
-    territory.detail.textContent = `expansion ${pct(colony.expansionLevel)}`
+    territory.detail.textContent = `grows with the colony · nest dug ${pct(colony.expansionLevel)}`
     territory.el.title =
-      `Expansion ${pct(colony.expansionLevel)} · foraging territory ×${colony.foodReach.toFixed(2)} ` +
+      `Foraging territory ×${colony.foodReach.toFixed(2)}, growing with the colony's size · nest dug ${pct(colony.expansionLevel)} ` +
       `(the dashed circle) · nest ${colony.nestDiameter.toFixed(0)} wide`
 
     const maxAnts = Math.max(1, ...TASK_ORDER.map((t) => snapshot[t].ants))
@@ -458,6 +480,29 @@ export const createHud = (src: HudSource): void => {
       row.demand.style.width = `${half}%`
       row.demand.classList.toggle('is-under', d > 0)
       row.el.classList.toggle('is-starved', d >= DEMAND_CLAMP)
+    }
+
+    // Allocation block.
+    const mm = colony.metrics
+    churn.value.textContent = mm.churn.toFixed(2)
+    churn.fill.style.width = pct(Math.min(1, mm.churn / 0.3))
+    churn.detail.textContent = 'switches per ant per min'
+    churn.el.title = 'Task switches per awake ant per minute (3-min average). Higher = the colony reshuffles more.'
+    reversals.value.textContent = pct(mm.reversals)
+    reversals.fill.style.width = pct(mm.reversals)
+    reversals.detail.textContent = 'switches undone in 3 min'
+    reversals.el.title = 'Share of all switches that were reversed within 3 minutes: thrash.'
+    sampleTile.value.textContent = pct(mm.sampleShare)
+    sampleTile.fill.style.width = pct(mm.sampleShare)
+    sampleTile.detail.textContent = `decisions with ≥ ¾ of tasks met · avg ${mm.tasksMetMean.toFixed(1)}/8`
+    sampleTile.el.title = 'An ant decides only once it has met ants from at least ¾ of the tasks since its last decision (meetings at the entrance count in full, elsewhere barely).'
+    const sh = mm.shock
+    if (!sh) {
+      shockNote.textContent = 'No shock yet. Hit one in the Controls bar to measure how the allocation responds; the task rows\u2019 tooltips carry the per-task metrics.'
+    } else {
+      const task = TASK_LABEL[sh.task]
+      const response = sh.responseMin === null ? (sh.elapsedMin >= 15 ? 'never settled (15 min)' : `not settled after ${sh.elapsedMin.toFixed(1)} min`) : `settled in ${sh.responseMin.toFixed(1)} min`
+      shockNote.textContent = `Shock at min ${(sh.at / 60e3).toFixed(0)}: ${SHOCK_LABEL[sh.kind]}. ${task} had ${sh.crewBefore} ants, supply ${sh.supplyBefore.toFixed(2)} → ${response}, overshoot ${sh.overshoot.toFixed(2)}, herd ${sh.herd} (most joining in 30 s).`
     }
 
     renderTip()

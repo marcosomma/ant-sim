@@ -398,7 +398,7 @@ export class ColonyView {
 
   /**
    * The colony's foraging territory: a dashed circle on the ground, where food spots appear.
-   * Expansion widens it (food is pushed out as the nest digs), so it measures expansion.
+   * It widens as the colony grows (the foraging range follows the population).
    * Built once at radius 1 and scaled, so it can grow smoothly.
    */
   /**

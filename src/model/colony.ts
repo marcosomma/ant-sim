@@ -1,6 +1,7 @@
 import { ArcRotateCamera, Curve3, Scene, Vector3 } from '@babylonjs/core'
 
 import Ant from '../classes/ant'
+import { AllocationMetrics, SHOCK_TASK, ShockKind } from './metrics'
 import { simNow, simSetInterval } from '../commons/simClock'
 import {
   ActualTask,
@@ -32,9 +33,12 @@ import {
   CLEANING_NEED_PER_ANT_PER_MIN,
   EXPANSION_HALF_LEVEL,
   FORAGE_RANGE_AT_FULL_EXPANSION,
+  FORAGE_RANGE_HALF_POPULATION,
   NEST_BASE_DIAMETER,
   NEST_MAX_DIAMETER,
   STORE_NEED_PER_FOOD_PER_MIN,
+  STORE_INTAKE_MINUTES,
+  STORE_KEEP_MINUTES,
   INFLUENCE_MAIN_SHARE,
   NEED_ACTUAL_FLOOR,
   NEED_HALF_LIFE_MIN,
@@ -179,6 +183,8 @@ export class Colony {
     EggLarvePupeaCare: baseNeed(),
   }
   readonly events: ColonyEvents = {}
+  /** How well the self-allocation serves the needs (see model/metrics.ts). */
+  readonly metrics = new AllocationMetrics()
   /** Room for each role (founding / sleep chamber + dug rooms with that role), and what has none. */
   readonly roomSpace: Record<RoomRole, number> = { sleep: 0, brood: 0, store: 0 }
   readonly unhoused: Record<RoomRole, number> = { sleep: 0, brood: 0, store: 0 }
@@ -239,6 +245,8 @@ export class Colony {
   private births0 = 0
   private deaths0 = 0
   private starveProgress = 0
+  /** Population smoothed over ~10 minutes: the foraging range follows it without seasonal flapping. */
+  private populationSmooth = INITIAL_ANTS
 
   /**
    * How far the nest has been dug out, 0..1, saturating.
@@ -263,7 +271,9 @@ export class Colony {
   /** Share of the current spot still on the ground, 0..1. */
   /** Spawn radius multiplier: expansion pushes the easy food out, and widens the area. */
   get foodReach(): number {
-    return 1 + (FORAGE_RANGE_AT_FULL_EXPANSION - 1) * this.expansionLevel
+    // From the colony's size, not from digging (which used to fund the food economy by proxy).
+    const p = this.populationSmooth
+    return 1 + (FORAGE_RANGE_AT_FULL_EXPANSION - 1) * (p / (p + FORAGE_RANGE_HALF_POPULATION))
   }
 
   /** Spots at least one living ant currently knows (a memory of the spot as it is now). */
@@ -375,7 +385,7 @@ export class Colony {
       // iAmOverreacting() saw Collect as over-staffed (267 counted vs 52 real after 35 min),
       // zeroed everyone's Collect rank, and the colony starved next to known food.
       needs[ant.data.behaviour.actualTask.type].dedicated_ants--
-      bump(needs.Expansion, -1)
+      // (A death no longer knocks the dig need down: room is measured directly, see crowding.)
       // An ant that dies in or near the nest is a corpse to carry out; one lost in the field isn't.
       const at = ant.data.body.position
       if (isUnderground(at) || Math.hypot(at.x, at.z) < 1.8 * SEARCHING_RADIUS) this.dropDebris('corpse')
@@ -400,6 +410,8 @@ export class Colony {
       return taken
     }
     ant.onKnowledgeShared = (at) => this.events.knowledgeShared?.(at)
+    ant.onSwitch = (from, to) => this.metrics.switched(ant, from, to, simNow())
+    ant.onDecision = (covered, met) => this.metrics.decided(covered, met)
     ant.onEncounter = (other) => this.events.encountered?.(ant, other)
     ant.onDump = () => (this.midden += 1)
     // Kept at the old constant (300): nestIsOverreacting compares against it.
@@ -407,7 +419,7 @@ export class Colony {
     ant.setReproduction = REPRODUCTION_ON
     needs.Protection.need += type === 'P' ? 0.05 : 0.03
     needs.Exploration.need += type === 'P' ? 0.05 : 0.03
-    needs.Expansion.need += type === 'P' ? 0.05 : 0.03
+    // (A birth no longer raises the dig need: room is measured directly, see crowding.)
     needs.Collect.need += REPRODUCTION_ON ? 0.1 : 1.0
     needs.Store.need += type === 'P' ? 0.05 : 0.03
     needs.Cleaning.need += type === 'P' ? 0.05 : 0.03
@@ -651,10 +663,38 @@ export class Colony {
     })
   }
 
-  /** How much of the food, brood and sleepers has no room: 0..1 each, summed (0..3). */
+  /**
+   * How much of the food, brood and sleepers has no room: 0..1 each, summed (0..3). Food
+   * counts only up to a reserve worth keeping (STORE_KEEP_MINUTES of consumption): surplus
+   * beyond that is not a reason to dig (TUNED cutoff, not biology: real colonies don't dig
+   * without end for food they can't eat; it spoils or is dumped).
+   */
   get crowding(): number {
     const share = (role: RoomRole, total: number): number => (total > 0 ? this.unhoused[role] / total : 0)
-    return share('sleep', this.asleep) + share('brood', this.brood.length) + share('store', Math.max(0, this.food))
+    const keep = Math.min(Math.max(0, this.food), this.consumption() * STORE_KEEP_MINUTES)
+    const storeShare = keep > 0 ? Math.min(this.unhoused.store, keep) / keep : 0
+    return share('sleep', this.asleep) + share('brood', this.brood.length) + storeShare
+  }
+
+  /**
+   * A SHOCK, for measuring how the allocation responds (metrics): half the foragers die, all
+   * known food vanishes (every spot moves), or the brood doubles. An experiment's lever, not
+   * something the colony does.
+   */
+  shock(kind: ShockKind): void {
+    const task = SHOCK_TASK[kind]
+    const crew = this.ants.filter((a) => a.data.behaviour.actualTask.type === task && !a.isSleeping).length
+    const n = this.needs[task]
+    this.metrics.startShock(kind, simNow(), crew, n.need > 0 ? n.actual / n.need : 1)
+    if (kind === 'foragers') {
+      const foragers = this.ants.filter((a) => a.data.behaviour.actualTask.type === 'Collect')
+      foragers.sort(() => Math.random() - 0.5).slice(0, Math.ceil(foragers.length / 2)).forEach((a) => a.dispose())
+    } else if (kind === 'food') {
+      ;[...FOOD_SPOTS].forEach((spot) => this.respawnFoodSpot(spot, true))
+    } else {
+      const extra = this.brood.map((b) => ({ progress: b.progress }))
+      this.brood.push(...extra)
+    }
   }
 
   /** Keep the patrol band in step with the territory: from outside the nest to 60% of the fence. */
@@ -832,6 +872,7 @@ export class Colony {
 
   private economyTick(): void {
     const dtMin = ECONOMY_TICK_MS / 60e3
+    this.populationSmooth += (this.ants.length - this.populationSmooth) * Math.min(1, dtMin / 10)
     // Ants age at the season's pace (slower in the cold).
     this.ants.forEach((ant) => (ant.age += ECONOMY_TICK_MS * this.season.aging))
     // Trails fade: routes nobody walks disappear, walked ones are kept up by the walking.
@@ -912,12 +953,14 @@ export class Colony {
 
     // Two pressures the colony's own state creates, rather than ant interactions:
     //
-    //   Store:    food already home has to go somewhere, so a fuller reserve needs more
-    //             storing. This is what stops a big haul from simply sitting in the open
-    //             and spoiling: intake raises the need to store it.
+    //   Store:    food that has just arrived, or lies unstored, has to be put away. It used to
+    //             be the WHOLE stock (food × rate): a seed already in the granary kept asking
+    //             to be stored forever, so a rich colony piled ants into storing and digging
+    //             and let its brood die of neglect (the hoarding trap). The stimulus is the
+    //             load at the entrance, not the full granary.
     //   Cleaning: a bigger colony in a bigger nest makes more mess. Both terms matter:
     //             ants generate it, and the dug-out area is what has to be walked.
-    this.needs.Store.need += this.food * STORE_NEED_PER_FOOD_PER_MIN * dtMin
+    this.needs.Store.need += (this.intakePerMin * STORE_INTAKE_MINUTES + this.unhoused.store) * STORE_NEED_PER_FOOD_PER_MIN * dtMin
     const nestFactor = this.nestDiameter / NEST_BASE_DIAMETER
     this.needs.Cleaning.need += this.ants.length * nestFactor * CLEANING_NEED_PER_ANT_PER_MIN * dtMin
     // Digging follows crowding: food, brood and sleepers with no room make the need to dig.
@@ -938,6 +981,7 @@ export class Colony {
 
     this.broodTick(dtMin)
     this.queenTick(dtMin)
+    this.metrics.sample(simNow(), dtMin, this.ants, this.needs)
 
     const k = dtMin / RATE_WINDOW_MIN
     this.birthsPerMin += ((this.births - this.births0) / dtMin - this.birthsPerMin) * k

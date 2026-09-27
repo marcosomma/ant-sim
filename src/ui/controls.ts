@@ -1,5 +1,6 @@
 import { SPEED_STEPS, getSpeed, onSpeedChange, setSpeed } from '../commons/simClock'
-import { SEASONS } from '../constants'
+import { AllocationRuleName, SEASONS, allocationRuleName, setAllocationRule } from '../constants'
+import { SHOCK_LABEL, ShockKind } from '../model/metrics'
 import type { Colony } from '../model/colony'
 import type { NestLayer } from '../scenes/colonyView'
 
@@ -177,6 +178,51 @@ export const createControls = (colony: Colony, soundButton: HTMLButtonElement, v
   layerButtons.forEach(({ b }) => b.addEventListener('click', paintLayers))
   paintLayers()
 
+  // --- Experiment: shocks and the decision rule ---------------------------------
+  // Levers for measuring the allocation (Anthill panel, Allocation): a shock hits one task
+  // hard; the rule menu turns parts of the ants' decision off (ablations). Two menus, so the
+  // bar stays one line.
+  const experiment = h('div', 'controls-group')
+  experiment.setAttribute('role', 'group')
+  experiment.setAttribute('aria-label', 'Experiment')
+  const shock = h('select', 'controls-select')
+  shock.setAttribute('aria-label', 'Shock')
+  shock.title = 'Hit one task hard, then watch the Allocation block in the Anthill panel'
+  const placeholder = h('option', '', 'Shock…')
+  placeholder.value = ''
+  shock.append(placeholder)
+  ;(Object.keys(SHOCK_LABEL) as ShockKind[]).forEach((kind) => {
+    const o = h('option', '', SHOCK_LABEL[kind])
+    o.value = kind
+    shock.append(o)
+  })
+  shock.addEventListener('change', () => {
+    if (shock.value) colony.shock(shock.value as ShockKind)
+    shock.value = ''
+  })
+  const rule = h('select', 'controls-select')
+  rule.setAttribute('aria-label', 'Decision rule')
+  const RULES: { name: AllocationRuleName; label: string; title: string }[] = [
+    { name: 'full', label: 'Rule: full', title: 'Public needs × crowding sampled at the entrance × individual thresholds, deciding only on a wide sample (the model as designed)' },
+    { name: 'anywhere', label: 'Rule: meet anywhere', title: 'Ablation: encounters count wherever they happen and any sample will do (the biased rule)' },
+    { name: 'board-only', label: 'Rule: board only', title: 'Ablation: ants read the public needs but ignore whom they meet (expect herding)' },
+    { name: 'encounters-only', label: 'Rule: encounters only', title: 'Ablation: ants ignore the public needs and go where they meet fewest (blind)' },
+    { name: 'homogeneous', label: 'Rule: same thresholds', title: 'Ablation: every ant has the same threshold for every task (expect thrash)' },
+  ]
+  RULES.forEach(({ name, label, title }) => {
+    const o = h('option', '', label)
+    o.value = name
+    o.title = title
+    rule.append(o)
+  })
+  rule.value = allocationRuleName()
+  rule.title = RULES.find((r) => r.name === rule.value)?.title ?? ''
+  rule.addEventListener('change', () => {
+    setAllocationRule(rule.value as AllocationRuleName)
+    rule.title = RULES.find((r) => r.name === rule.value)?.title ?? ''
+  })
+  experiment.append(shock, rule)
+
   // --- Sound ----------------------------------------------------------------
   const sound = h('div', 'controls-group controls-group--end')
   sound.append(soundButton)
@@ -187,6 +233,8 @@ export const createControls = (colony: Colony, soundButton: HTMLButtonElement, v
     seasons,
     h('span', 'controls-rule'),
     layers,
+    h('span', 'controls-rule'),
+    experiment,
     h('span', 'controls-rule'),
     sound,
   )

@@ -49,9 +49,9 @@ const SECTIONS: Section[] = [
         <b>White spark</b>: two ants met and one taught the other where a site is. <b>Grey spark</b>: a death.</li>
       <li><b>Small rings</b> (only while a task is pinned): an encounter between one of its ants and another
         ant, coloured by the other ant's task.</li>
-      <li>The <b>dashed circle</b> is the colony's territory, where food spots appear. Its <b>size</b> is
-        expansion: digging widens it, because the easy food nearby is used up and new food turns up further
-        out (the <b>Nest expansion</b> bar measures the same). Its <b>brightness</b> is scouting:
+      <li>The <b>dashed circle</b> is the colony's territory, where food spots appear. Its <b>size</b> follows
+        the <b>colony's size</b>: more ants cover more ground, so new food turns up further out (the
+        <b>Territory</b> tile measures it). Its <b>brightness</b> is scouting:
         exploration has no site, since scouts roam the whole territory, so the circle is its gauge. Bright
         means scouting keeps up, faint means it lags, and breathing means badly under-served.</li>
       <li><b>Food</b> lies in several <b>spots</b> (mounds, sized by what is left), each with its own road.
@@ -236,6 +236,31 @@ const SECTIONS: Section[] = [
       <li><i>Experimental:</i> <b>frozen ground</b>. In winter (and a little in late autumn) digging achieves
         much less. You can see it as a faint frost on the ground and icy soil heaps.</li>
     </ul>`,
+  },
+  {
+    id: 'allocation',
+    title: 'Measuring the allocation',
+    body: `<p>Population is a poor gauge of whether the ants allocate themselves well, so the panel's
+      <b>Allocation</b> block and each task row's tooltip measure it directly (nothing here influences the
+      ants):</p>
+      <ul>
+        <li><b>Supply</b>: actual ÷ need for the task, 1 = balanced. <b>Under-served</b>: the share of time it sat
+          below 0.5. <b>Tracking error</b>: how far, on average, it sat from balance (|log2 need ÷ actual|).</li>
+        <li><b>Crowding bias</b>: how crowded the task looks to the ants on it (their encounter share) divided by
+          its real share of the workforce. 1 = encounters sample the colony fairly; above 1 = a task done in one
+          place (a nursery) looks more crowded from inside than it is, and under-recruits.</li>
+        <li><b>Churn</b>: switches per ant per minute. <b>Reversals</b>: switches undone within 3 minutes (thrash).</li>
+        <li><b>Shocks</b> (Controls bar): half the foragers die, all known food vanishes, or the brood doubles. The
+          block then reports how long the hit task took to come back within ±25% of balance, the overshoot, and
+          the <b>herd</b> (most ants joining it in any 30 s).</li>
+        <li>Encounters count at the <b>entrance</b>, the one place every task's traffic crosses (as harvester ants
+          assess foraging from the traffic at the nest door); elsewhere they barely count, since there you meet only
+          your own kind. And an ant <b>decides only on a wide sample</b>: once it has met ants from at least ¾ of the
+          tasks since its last decision. The <b>Sample</b> tile shows how often that held.</li>
+        <li><b>Rule</b> (Controls bar): ablations of the ants' decision. <i>Meet anywhere</i> is the earlier, biased rule. <i>Board only</i> ignores encounters (expect
+          herding), <i>Encounters only</i> ignores the public needs (blind), <i>Same thresholds</i> removes individual
+          differences (expect thrash). <i>Full rule</i> is the model as designed.</li>
+      </ul>`,
   },
   {
     id: 'controls',

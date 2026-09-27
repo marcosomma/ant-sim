@@ -18,6 +18,10 @@ import {
   ENCOUNTER_PRIOR,
   SWITCH_MODEL,
   SWITCH_THRESHOLD_BASE,
+  ALLOCATION_RULE,
+  ENCOUNTER_HUB_RADIUS,
+  ENCOUNTER_AWAY_WEIGHT,
+  DECISION_SAMPLE_SHARE,
   SWITCH_THRESHOLD_SPREAD,
   getLifespan,
   ActualTask,
@@ -102,6 +106,10 @@ export default class Ant {
   onEncounter?: (other: Ant) => void
   /** A cleaner dropped its load on the midden. */
   onDump?: () => void
+  /** The ant changed task (for the allocation metrics). */
+  onSwitch?: (from: TaskName, to: TaskName) => void
+  /** The ant came to decide: was its sample wide enough (tasks met since the last decision)? */
+  onDecision?: (covered: boolean, tasksMet: number) => void
 
   // --- food spots ---
   /**
@@ -131,6 +139,8 @@ export default class Ant {
   private lastMet = new Map<string, number>()
   /** Individual response thresholds, fixed at birth. */
   private thresholds = {} as Record<TaskName, number>
+  /** Tasks met since the last decision (DECISION_SAMPLE_SHARE). */
+  private seenSinceDecision = new Set<TaskName>()
 
   constructor(type: AntType, camera: ArcRotateCamera, scene: Scene) {
     const ant = getAntObject(type)
@@ -517,6 +527,7 @@ export default class Ant {
     let currentTask = (actualTask[0] !== previousTask ? actualTask[0] : actualTask[1]) as TaskName
     const shouldSwitch = !!previousTask && this.shouldSwitchTask(previousTask, currentTask)
     if (!shouldSwitch) currentTask = previousTask
+    if (shouldSwitch && currentTask !== previousTask) this.onSwitch?.(previousTask, currentTask)
     this.setTarget = this.targetFor(currentTask)
     this.data.behaviour.actualTask.type = shouldSwitch ? currentTask : previousTask
     this.data.behaviour.actualTask.interactionPercentage = shouldSwitch
@@ -545,7 +556,13 @@ export default class Ant {
     this.lastMet.set(other.data.id, now)
     if (this.lastMet.size > 256) this.lastMet.clear()
     this.decayTally()
-    this.encounterTally[other.data.behaviour.actualTask.type] += 1
+    // A meeting at the entrance (where every task's traffic crosses) counts in full; one at the
+    // work site, where you meet your own kind, barely (see ENCOUNTER_HUB_RADIUS).
+    const p = this.data.body.position as Vector3
+    const atHub = !ALLOCATION_RULE.hubEncounters || Math.hypot(p.x, p.y, p.z) < ENCOUNTER_HUB_RADIUS
+    const task = other.data.behaviour.actualTask.type
+    this.encounterTally[task] += atHub ? 1 : ENCOUNTER_AWAY_WEIGHT
+    this.seenSinceDecision.add(task)
     this.onEncounter?.(other)
   }
 
@@ -561,11 +578,25 @@ export default class Ant {
   perceivedPressure(task: TaskName): number {
     const urgency = this.data.nestNeeds![task].urgency
     const fairShare = 1 / Object.keys(this.encounterTally).length
-    return (Number.isFinite(urgency) ? Math.max(0, urgency) : 1e6) * (fairShare / this.encounterShare(task))
+    // Ablations (ALLOCATION_RULE): without the board every task looks equally needed; without
+    // encounters nothing looks crowded.
+    const need = ALLOCATION_RULE.board ? (Number.isFinite(urgency) ? Math.max(0, urgency) : 1e6) : 1
+    const crowd = ALLOCATION_RULE.encounters ? fairShare / this.encounterShare(task) : 1
+    return need * crowd
   }
 
   private assignByThreshold(previousTask: TaskName): void {
     const tasks = Object.keys(this.data.nestNeeds!) as TaskName[]
+    // No decision on a thin sample: keep the task and keep sampling until enough tasks were met.
+    const needed = Math.ceil(DECISION_SAMPLE_SHARE * tasks.length)
+    const covered = !ALLOCATION_RULE.sampleCoverage || this.seenSinceDecision.size >= needed
+    this.onDecision?.(covered, this.seenSinceDecision.size)
+    if (!covered) {
+      this.setTarget = this.targetFor(previousTask)
+      this.data.behaviour.actualTask.lastInteraction = simNow()
+      return
+    }
+    this.seenSinceDecision.clear()
     const current = this.perceivedPressure(previousTask)
     let candidate = previousTask
     let best = current
@@ -582,11 +613,12 @@ export default class Ant {
     // Never leave a task below its minimum crew (same rule as the legacy model).
     if (candidate !== previousTask && this.minimumAntsPerTask(previousTask)) {
       const stimulus = current > 0 ? best / current - 1 : 1e6
-      const theta = this.thresholds[candidate]
+      const theta = ALLOCATION_RULE.homogeneousThresholds ? SWITCH_THRESHOLD_BASE : this.thresholds[candidate]
       probability = (stimulus * stimulus) / (stimulus * stimulus + theta * theta)
       switched = Math.random() < probability
     }
     const task = switched ? candidate : previousTask
+    if (switched) this.onSwitch?.(previousTask, task)
 
     this.setTarget = this.targetFor(task)
     this.data.behaviour.actualTask.type = task
