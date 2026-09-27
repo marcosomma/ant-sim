@@ -87,7 +87,7 @@ export interface AntData {
 
 // World size. Used to be MAX_ANTS, which also sized the world, the ants and the camera;
 // now that population is dynamic, the two are separate.
-export const WORLD_SCALE = 5e2
+export const WORLD_SCALE = 2e2
 /**
  * Every 3D size (sites, markers, nest, roads, effects, camera distances) was drawn for a
  * world of 300. Multiply by this so symbols keep their proportion to the world when
